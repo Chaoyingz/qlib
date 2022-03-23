@@ -251,23 +251,13 @@ class Feature(Expression):
 
 
 class PFeature(Feature):
-    def __init__(self, name=None, period=None):
-        # if period is None, it will always retrieve data based on the latest reported period
-        # otherwise, it will retrieve data in specific period
-        self._period = period
-        super().__init__(name)
-
     def __str__(self):
-        return f"$${self._name}[{self._period}]"  # avoid cache key confliction
+        return "$$" + self._name
 
-    def _load_internal(self, instrument, start_index, end_index, cur_time):
+    def _load_internal(self, instrument, start_index, end_index, cur_time, period=None):
         from .data import PITD  # pylint: disable=C0415
 
-        return PITD.period_feature(instrument, self._name, start_index, end_index, cur_time, self._period)
-
-
-class PF(PFeature):
-    """Just give PFeature an alias for convenience"""
+        return PITD.period_feature(instrument, str(self), start_index, end_index, cur_time, period)
 
 
 class ExpressionOps(Expression):
