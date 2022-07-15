@@ -61,7 +61,6 @@ REQUIRED = [
     "hyperopt==0.1.2",
     "fire>=0.3.1",
     "statsmodels",
-    "xlrd>=1.0.0",
     "plotly>=4.12.0",
     "matplotlib>=3.3",
     "tables>=3.6.1",
@@ -73,7 +72,7 @@ REQUIRED = [
     "tornado",
     "joblib>=0.17.0",
     "ruamel.yaml>=0.16.12",
-    "pymongo==3.7.2",  # For task management
+    "pymongo<=4",  # For task management
     "scikit-learn>=0.22",
     "dill",
     "dataclasses;python_version<'3.7'",
