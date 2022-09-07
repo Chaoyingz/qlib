@@ -35,6 +35,9 @@ np.seterr(invalid="ignore")
 
 #################### Element-Wise Operator ####################
 
+FLOAT_DTYPES = (float, np.float, np.float32, np.float64)
+CATEGORY_DTYPES = (str, "category")
+
 
 class ElemOperator(ExpressionOps):
     """Element-wise Operator
@@ -118,6 +121,8 @@ class NpElemOperator(ElemOperator):
 
     def _load_internal(self, instrument, start_index, end_index, *args):
         series = self.feature.load(instrument, start_index, end_index, *args)
+        if series.dtype not in FLOAT_DTYPES:
+            raise ValueError("Numpy element-wise operator only support float dtype.")
         return getattr(np, self.func)(series)
 
 
@@ -308,12 +313,17 @@ class NpPairOperator(PairOperator):
         assert any(
             [isinstance(self.feature_left, (Expression,)), self.feature_right, Expression]
         ), "at least one of two inputs is Expression instance"
+        dtype_validate_error_msg = "Numpy Pair-wise operator not support category dtype."
         if isinstance(self.feature_left, (Expression,)):
             series_left = self.feature_left.load(instrument, start_index, end_index, *args)
+            if series_left.dtype in CATEGORY_DTYPES:
+                raise ValueError(dtype_validate_error_msg)
         else:
             series_left = self.feature_left  # numeric value
         if isinstance(self.feature_right, (Expression,)):
             series_right = self.feature_right.load(instrument, start_index, end_index, *args)
+            if series_right.dtype in CATEGORY_DTYPES:
+                raise ValueError(dtype_validate_error_msg)
         else:
             series_right = self.feature_right
         check_length = isinstance(series_left, (np.ndarray, pd.Series)) and isinstance(
@@ -747,6 +757,8 @@ class Rolling(ExpressionOps):
 
     def _load_internal(self, instrument, start_index, end_index, *args):
         series = self.feature.load(instrument, start_index, end_index, *args)
+        if series.dtype in CATEGORY_DTYPES:
+            raise ValueError("Rolling operator not support category dtype.")
         # NOTE: remove all null check,
         # now it's user's responsibility to decide whether use features in null days
         # isnull = series.isnull() # NOTE: isnull = NaN, inf is not null
@@ -1422,16 +1434,19 @@ class PairRolling(ExpressionOps):
         assert any(
             [isinstance(self.feature_left, Expression), self.feature_right, Expression]
         ), "at least one of two inputs is Expression instance"
-
+        dtype_validate_error_msg = "Pair Rolling operator not support category dtype."
         if isinstance(self.feature_left, Expression):
             series_left = self.feature_left.load(instrument, start_index, end_index, *args)
+            if series_left.dtype in CATEGORY_DTYPES:
+                raise ValueError(dtype_validate_error_msg)
         else:
             series_left = self.feature_left  # numeric value
         if isinstance(self.feature_right, Expression):
             series_right = self.feature_right.load(instrument, start_index, end_index, *args)
+            if series_right.dtype in CATEGORY_DTYPES:
+                raise ValueError(dtype_validate_error_msg)
         else:
             series_right = self.feature_right
-
         if self.N == 0:
             series = getattr(series_left.expanding(min_periods=1), self.func)(series_right)
         else:
