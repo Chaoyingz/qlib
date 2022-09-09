@@ -47,6 +47,8 @@ class DumpDataBase:
         exclude_fields: str = "",
         include_fields: str = "",
         limit_nums: int = None,
+        force_update: bool = False,
+        instruments_file_name: str = "all.txt",
     ):
         """
 
@@ -108,6 +110,9 @@ class DumpDataBase:
         self._mode = self.ALL_MODE
         self._kwargs = {}
 
+        self.force_update = force_update
+        self.instruments_file_name = instruments_file_name
+
     def _load_all_source_data(self):
         # NOTE: Need more memory
         logger.info("start load all source data....")
@@ -125,8 +130,9 @@ class DumpDataBase:
                     if not df.empty:
                         all_df.append(df)
                     p_bar.update()
-
         logger.info("end of load all data.\n")
+        if not all_df:
+            return pd.DataFrame(columns={self.date_field_name, self.symbol_field_name})
         return pd.concat(all_df, sort=False)
 
     def _backup_qlib_dir(self, target_dir: Path):
@@ -206,7 +212,7 @@ class DumpDataBase:
 
     def save_instruments(self, instruments_data: Union[list, pd.DataFrame]):
         self._instruments_dir.mkdir(parents=True, exist_ok=True)
-        instruments_path = str(self._instruments_dir.joinpath(self.INSTRUMENTS_FILE_NAME).resolve())
+        instruments_path = str(self._instruments_dir.joinpath(self.instruments_file_name).resolve())
         if isinstance(instruments_data, pd.DataFrame):
             _df_fields = [self.symbol_field_name, self.INSTRUMENTS_START_FIELD, self.INSTRUMENTS_END_FIELD]
             instruments_data = instruments_data.loc[:, _df_fields]
@@ -251,9 +257,27 @@ class DumpDataBase:
             if field not in _df.columns:
                 continue
             if bin_path.exists() and self._mode == self.UPDATE_MODE:
-                # update
-                with bin_path.open("ab") as fp:
-                    np.array(_df[field]).astype("<f").tofile(fp)
+                if self.force_update:
+                    # force update
+                    with bin_path.open("rb+") as fp:
+                        _old_data = np.fromfile(fp, dtype="<f")
+                        _old_index = int(_old_data[0])
+                        _old_df = pd.DataFrame(
+                            _old_data[1:], index=range(_old_index, _old_index + len(_old_data) - 1), columns=["old"]
+                        )
+                        fp.seek(0)
+                        _new_df = pd.DataFrame(
+                            _df[field].values, index=range(date_index, date_index + len(_df[field])), columns=["new"]
+                        )
+                        _con_df = pd.concat([_old_df, _new_df], sort=False, axis=1)
+                        _con_df = _con_df.reindex(range(_con_df.index.min(), _con_df.index.max() + 1))
+                        np.hstack([_con_df.index.min(), _con_df["old"].fillna(_con_df["new"]).values]).astype(
+                            "<f"
+                        ).tofile(fp)
+                else:
+                    # update
+                    with bin_path.open("ab") as fp:
+                        np.array(_df[field]).astype("<f").tofile(fp)
             else:
                 # append; self._mode == self.ALL_MODE or not bin_path.exists()
                 np.hstack([date_index, _df[field]]).astype("<f").tofile(str(bin_path.resolve()))
@@ -414,7 +438,7 @@ class DumpDataFix(DumpDataAll):
         self._calendars_list = self._read_calendars(self._calendars_dir.joinpath(f"{self.freq}.txt"))
         # noinspection PyAttributeOutsideInit
         self._old_instruments = (
-            self._read_instruments(self._instruments_dir.joinpath(self.INSTRUMENTS_FILE_NAME))
+            self._read_instruments(self._instruments_dir.joinpath(self.instruments_file_name))
             .set_index([self.symbol_field_name])
             .to_dict(orient="index")
         )  # type: dict
@@ -436,6 +460,8 @@ class DumpDataUpdate(DumpDataBase):
         exclude_fields: str = "",
         include_fields: str = "",
         limit_nums: int = None,
+        force_update: bool = False,
+        instruments_file_name: str = DumpDataBase.INSTRUMENTS_FILE_NAME,
     ):
         """
 
@@ -475,18 +501,21 @@ class DumpDataUpdate(DumpDataBase):
             symbol_field_name,
             exclude_fields,
             include_fields,
+            force_update=force_update,
+            instruments_file_name=instruments_file_name,
         )
         self._mode = self.UPDATE_MODE
         self._old_calendar_list = self._read_calendars(self._calendars_dir.joinpath(f"{self.freq}.txt"))
         # NOTE: all.txt only exists once for each stock
         # NOTE: if a stock corresponds to multiple different time ranges, user need to modify self._update_instruments
         self._update_instruments = (
-            self._read_instruments(self._instruments_dir.joinpath(self.INSTRUMENTS_FILE_NAME))
+            self._read_instruments(self._instruments_dir.joinpath(self.instruments_file_name))
             .set_index([self.symbol_field_name])
             .to_dict(orient="index")
         )  # type: dict
 
         # load all csv files
+        self.dump_category()
         self._all_data = self.convert_category_field_values(self._load_all_source_data())  # type: pd.DataFrame
         self._new_calendar_list = self._old_calendar_list + sorted(
             filter(lambda x: x > self._old_calendar_list[-1], self._all_data[self.date_field_name].unique())
@@ -509,17 +538,22 @@ class DumpDataUpdate(DumpDataBase):
                 if not (isinstance(_start, pd.Timestamp) and isinstance(_end, pd.Timestamp)):
                     continue
                 if _code in self._update_instruments:
-                    # exists stock, will append data
-                    _update_calendars = (
-                        _df[_df[self.date_field_name] > self._update_instruments[_code][self.INSTRUMENTS_END_FIELD]][
-                            self.date_field_name
-                        ]
-                        .sort_values()
-                        .to_list()
-                    )
-                    if _update_calendars:
+
+                    if self.force_update:
                         self._update_instruments[_code][self.INSTRUMENTS_END_FIELD] = self._format_datetime(_end)
-                        futures[executor.submit(self._dump_bin, _df, _update_calendars)] = _code
+                        futures[executor.submit(self._dump_bin, _df, self._new_calendar_list)] = _code
+                    else:
+                        # exists stock, will append data
+                        _update_calendars = (
+                            _df[
+                                _df[self.date_field_name] > self._update_instruments[_code][self.INSTRUMENTS_END_FIELD]
+                            ][self.date_field_name]
+                            .sort_values()
+                            .to_list()
+                        )
+                        if _update_calendars:
+                            self._update_instruments[_code][self.INSTRUMENTS_END_FIELD] = self._format_datetime(_end)
+                            futures[executor.submit(self._dump_bin, _df, _update_calendars)] = _code
                 else:
                     # new stock
                     _dt_range = self._update_instruments.setdefault(_code, dict())

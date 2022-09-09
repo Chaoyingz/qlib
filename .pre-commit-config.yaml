@@ -9,4 +9,5 @@ repos:
     rev: 4.0.1
     hooks:
         - id: flake8
+          exclude: "^qlib_scripts/data_collector/.*"
           args: ["--ignore=E501,F541,E266,E402,W503,E731,E203"]
