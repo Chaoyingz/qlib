@@ -271,7 +271,7 @@ class DumpDataBase:
                         )
                         _con_df = pd.concat([_old_df, _new_df], sort=False, axis=1)
                         _con_df = _con_df.reindex(range(_con_df.index.min(), _con_df.index.max() + 1))
-                        np.hstack([_con_df.index.min(), _con_df["old"].fillna(_con_df["new"]).values]).astype(
+                        np.hstack([_con_df.index.min(), _con_df["new"].fillna(_con_df["old"]).values]).astype(
                             "<f"
                         ).tofile(fp)
                 else:
