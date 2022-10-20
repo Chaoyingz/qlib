@@ -7,7 +7,7 @@ import pandas as pd
 import qlib
 from qlib.data import D
 from qlib.tests.utils import split_df_to_str
-from scripts.dump_bin import DumpDataAll, DumpDataFix, DumpDataUpdate
+from qlib_scripts.dump_bin import DumpDataAll, DumpDataFix, DumpDataUpdate
 
 
 pd.set_option("display.width", 1000)

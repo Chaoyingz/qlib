@@ -12,9 +12,11 @@ from pathlib import Path
 
 from qlib.data import D
 from qlib.tests.data import GetData
-from qlib_scripts.dump_pit import DumpPitData
 
-sys.path.append(str(Path(__file__).resolve().parent.parent.joinpath("scripts/data_collector/pit")))
+sys.path.append(str(Path(__file__).resolve().parent.parent.joinpath("qlib_scripts")))
+from dump_pit import DumpPitData
+
+sys.path.append(str(Path(__file__).resolve().parent.parent.joinpath("qlib_scripts/data_collector/pit")))
 from collector import Run
 
 

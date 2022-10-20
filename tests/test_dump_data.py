@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 from qlib.data import D
 
-sys.path.append(str(Path(__file__).resolve().parent.parent.joinpath("scripts")))
+sys.path.append(str(Path(__file__).resolve().parent.parent.joinpath("qlib_scripts")))
 from get_data import GetData
 from dump_bin import DumpDataAll, DumpDataFix
 
