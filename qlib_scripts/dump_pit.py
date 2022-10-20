@@ -1,77 +1,38 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
-"""
-TODO:
-- A more well-designed PIT database is required.
-    - seperated insert, delete, update, query operations are required.
-"""
-
+import pathlib
 import shutil
-import struct
-from concurrent.futures import ProcessPoolExecutor
-from functools import partial
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Union, Any
+from functools import partial
+from concurrent.futures import ProcessPoolExecutor
 
 import fire
-import numpy as np
 import pandas as pd
+from tqdm import tqdm
 from loguru import logger
-from qlib.config import C
-from qlib.utils import fname_to_code, get_period_offset
+
+from qlib.data.storage.file_storage import FileFinancialStorage
+from qlib.data.storage.helper import FinancialInterval
+from qlib.utils import fname_to_code
 
 
 class DumpPitData:
-    PIT_DIR_NAME = "financial"
-    PIT_CSV_SEP = ","
     DATA_FILE_SUFFIX = ".data"
     INDEX_FILE_SUFFIX = ".index"
-
-    INTERVAL_QUARTERLY = "quarterly"
-    INTERVAL_ANNUAL = "annual"
-
-    PERIOD_DTYPE = C.pit_record_type["period"]
-    INDEX_DTYPE = C.pit_record_type["index"]
-    DATA_DTYPE = "".join(
-        [
-            C.pit_record_type["date"],
-            C.pit_record_type["period"],
-            C.pit_record_type["value"],
-            C.pit_record_type["index"],
-        ]
-    )
-    DATA_RECORDS = [
-        ("date", C.pit_record_type["date"]),
-        ("period", C.pit_record_type["period"]),
-        ("value", C.pit_record_type["value"]),
-        ("_next", C.pit_record_type["index"]),
-    ]
-
-    NA_INDEX = C.pit_record_nan["index"]
-
-    INDEX_DTYPE_SIZE = struct.calcsize(INDEX_DTYPE)
-    PERIOD_DTYPE_SIZE = struct.calcsize(PERIOD_DTYPE)
-    DATA_DTYPE_SIZE = struct.calcsize(DATA_DTYPE)
-
-    UPDATE_MODE = "update"
-    ALL_MODE = "all"
 
     def __init__(
         self,
         csv_path: str,
         qlib_dir: str,
         backup_dir: str = None,
-        freq: str = "quarterly",
         max_workers: int = 16,
-        date_column_name: str = "date",
-        period_column_name: str = "period",
-        value_column_name: str = "value",
-        field_column_name: str = "field",
         file_suffix: str = ".csv",
         exclude_fields: str = "",
         include_fields: str = "",
         limit_nums: int = None,
-    ):
+        interval: Union[FinancialInterval, str] = FinancialInterval.QUARTERLY,
+    ) -> None:
         """
 
         Parameters
@@ -82,12 +43,8 @@ class DumpPitData:
             qlib(dump) data director
         backup_dir: str, default None
             if backup_dir is not None, backup qlib_dir to backup_dir
-        freq: str, default "quarterly"
-            data frequency
         max_workers: int, default None
             number of threads
-        date_column_name: str, default "date"
-            the name of the date field in the csv
         file_suffix: str, default ".csv"
             file suffix
         include_fields: tuple
@@ -110,53 +67,43 @@ class DumpPitData:
             self.csv_files = self.csv_files[: int(limit_nums)]
         self.qlib_dir = Path(qlib_dir).expanduser()
         self.backup_dir = backup_dir if backup_dir is None else Path(backup_dir).expanduser()
-        self.freq = freq
         if backup_dir is not None:
             self._backup_qlib_dir(Path(backup_dir).expanduser())
 
+        if isinstance(interval, str):
+            self.interval = FinancialInterval.from_alias(interval)
+        else:
+            self.interval = interval
         self.works = max_workers
-        self.date_column_name = date_column_name
-        self.period_column_name = period_column_name
-        self.value_column_name = value_column_name
-        self.field_column_name = field_column_name
 
-        self._mode = self.ALL_MODE
-
-    def _backup_qlib_dir(self, target_dir: Path):
+    def _backup_qlib_dir(self, target_dir: Path) -> None:
         shutil.copytree(str(self.qlib_dir.resolve()), str(target_dir.resolve()))
 
     def get_source_data(self, file_path: Path) -> pd.DataFrame:
         df = pd.read_csv(str(file_path.resolve()), low_memory=False)
-        df[self.value_column_name] = df[self.value_column_name].astype("float32")
-        df[self.date_column_name] = df[self.date_column_name].str.replace("-", "").astype("int32")
-        # df.drop_duplicates([self.date_field_name], inplace=True)
         return df
 
     def get_symbol_from_file(self, file_path: Path) -> str:
         return fname_to_code(file_path.name[: -len(self.file_suffix)].strip().lower())
 
-    def get_dump_fields(self, df: pd.DataFrame) -> Iterable[str]:
+    def get_dump_fields(self, df: Iterable[str]) -> Iterable[str]:
         return (
             set(self._include_fields)
             if self._include_fields
-            else set(df[self.field_column_name]) - set(self._exclude_fields)
+            else set(df[FileFinancialStorage.FIELD_COLUMN_NAME]) - set(self._exclude_fields)
             if self._exclude_fields
-            else set(df[self.field_column_name])
+            else set(df[FileFinancialStorage.FIELD_COLUMN_NAME])
         )
 
-    def get_filenames(self, symbol, field, interval):
-        dir_name = self.qlib_dir.joinpath(self.PIT_DIR_NAME, symbol)
-        dir_name.mkdir(parents=True, exist_ok=True)
-        return (
-            dir_name.joinpath(f"{field}_{interval[0]}{self.DATA_FILE_SUFFIX}".lower()),
-            dir_name.joinpath(f"{field}_{interval[0]}{self.INDEX_FILE_SUFFIX}".lower()),
-        )
+    @staticmethod
+    def get_field_name(field: str, interval: FinancialInterval) -> str:
+        return f"{field.lower()}_{interval.to_alias()}"
 
     def _dump_pit(
         self,
-        file_path: Path,
-        interval: str = "quarterly",
-    ):
+        file_path: pathlib.Path,
+        interval: FinancialInterval,
+    ) -> None:
         """
         dump data as the following format:
             `/path/to/<field>.data`
@@ -174,8 +121,6 @@ class DumpPitData:
 
         Parameters
         ----------
-        file_path: Path
-            file path
         interval: str
             data interval
         """
@@ -185,88 +130,25 @@ class DumpPitData:
             logger.warning(f"{symbol} file is empty")
             return
         for field in self.get_dump_fields(df):
-            df_sub = df.query(f'{self.field_column_name}=="{field}"').sort_values(self.date_column_name)
-            if df_sub.empty:
-                logger.warning(f"field {field} of {symbol} is empty")
+            field_df = df.query(f"{FileFinancialStorage.FIELD_COLUMN_NAME}=='{field}'").sort_values(
+                FileFinancialStorage.DATE_COLUMN_NAME
+            )
+            if field_df.empty:
+                logger.warning(f"Field {field} of {symbol} is empty.")
                 continue
-            data_file, index_file = self.get_filenames(symbol, field, interval)
+            FileFinancialStorage(symbol, self.get_field_name(field, interval), "day", provider_uri=self.qlib_dir).write(
+                field_df
+            )
 
-            # calculate first & last period
-            start_year = df_sub[self.period_column_name].min()
-            end_year = df_sub[self.period_column_name].max()
-            if interval == self.INTERVAL_QUARTERLY:
-                start_year //= 100
-                end_year //= 100
-
-            # adjust `first_year` if existing data found
-            if index_file.exists():
-                with open(index_file, "rb") as fi:
-                    (first_year,) = struct.unpack(self.PERIOD_DTYPE, fi.read(self.PERIOD_DTYPE_SIZE))
-                    n_years = len(fi.read()) // self.INDEX_DTYPE_SIZE
-                    if interval == self.INTERVAL_QUARTERLY:
-                        n_years //= 4
-                    start_year = first_year + n_years
-            else:
-                with open(index_file, "wb") as f:
-                    f.write(struct.pack(self.PERIOD_DTYPE, start_year))
-                first_year = start_year
-
-            with open(index_file, "ab") as fi:
-                for year in range(start_year, end_year + 1):
-                    if interval == self.INTERVAL_QUARTERLY:
-                        fi.write(struct.pack(self.INDEX_DTYPE * 4, *[self.NA_INDEX] * 4))
-                    else:
-                        fi.write(struct.pack(self.INDEX_DTYPE, self.NA_INDEX))
-
-            if not data_file.exists():
-                data_file.touch()
-
-            with open(data_file, "rb+") as fd, open(index_file, "rb+") as fi:
-                exists_data = np.fromfile(fd, dtype=self.DATA_RECORDS)
-
-                fd.seek(0, 2)
-
-                # update index if needed
-                for i, row in df_sub.iterrows():
-
-                    # skip existing data
-                    loc = np.searchsorted(exists_data["period"], row.period, side="right")
-                    if data_file.exists() and loc != 0 and loc != len(exists_data):
-                        last_updated_date = exists_data["date"][loc - 1]
-                        if last_updated_date >= row.date:
-                            continue
-
-                    # get index
-                    offset = get_period_offset(first_year, row.period, interval == self.INTERVAL_QUARTERLY)
-                    fi.seek(self.PERIOD_DTYPE_SIZE + self.INDEX_DTYPE_SIZE * offset)
-                    (cur_index,) = struct.unpack(self.INDEX_DTYPE, fi.read(self.INDEX_DTYPE_SIZE))
-                    # Case I: new data => update `_next` with current index
-                    if cur_index == self.NA_INDEX:
-                        fi.seek(self.PERIOD_DTYPE_SIZE + self.INDEX_DTYPE_SIZE * offset)
-                        fi.write(struct.pack(self.INDEX_DTYPE, fd.tell()))
-                    # Case II: previous data exists => find and update the last `_next`
-                    else:
-                        _cur_fd = fd.tell()
-                        prev_index = self.NA_INDEX
-                        while cur_index != self.NA_INDEX:  # NOTE: first iter always != NA_INDEX
-                            fd.seek(cur_index + self.DATA_DTYPE_SIZE - self.INDEX_DTYPE_SIZE)
-                            prev_index = cur_index
-                            (cur_index,) = struct.unpack(self.INDEX_DTYPE, fd.read(self.INDEX_DTYPE_SIZE))
-                        fd.seek(prev_index + self.DATA_DTYPE_SIZE - self.INDEX_DTYPE_SIZE)
-                        fd.write(struct.pack(self.INDEX_DTYPE, _cur_fd))  # NOTE: add _next pointer
-                        fd.seek(_cur_fd)
-
-                    # dump data
-                    fd.write(struct.pack(self.DATA_DTYPE, row.date, row.period, row.value, self.NA_INDEX))
-
-    def dump(self, interval="quarterly"):
+    def dump(self) -> None:
         logger.info("start dump pit data......")
-        _dump_func = partial(self._dump_pit, interval=interval)
+        _dump_func = partial(self._dump_pit, interval=self.interval)
+        with tqdm(total=len(self.csv_files)) as p_bar:
+            with ProcessPoolExecutor(max_workers=self.works) as executor:
+                for _ in executor.map(_dump_func, self.csv_files):
+                    p_bar.update()
 
-        with ProcessPoolExecutor(max_workers=self.works) as executor:
-            executor.map(_dump_func, self.csv_files)
-
-    def __call__(self, *args, **kwargs):
+    def __call__(self, *args: Any, **kwargs: Any) -> None:
         self.dump()
 
 

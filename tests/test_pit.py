@@ -8,14 +8,11 @@ import shutil
 import unittest
 import pytest
 import pandas as pd
-
-# import baostock as bs
 from pathlib import Path
 
 from qlib.data import D
 from qlib.tests.data import GetData
-from qlib.tests.utils import split_df_to_str
-from scripts.dump_pit import DumpPitData
+from qlib_scripts.dump_pit import DumpPitData
 
 sys.path.append(str(Path(__file__).resolve().parent.parent.joinpath("scripts/data_collector/pit")))
 from collector import Run
@@ -59,17 +56,37 @@ class TestPIT(unittest.TestCase):
             normalize_dir=pit_normalized_dir,
             interval="quarterly",
         ).normalize_data()
-        DumpPitData(
-            csv_path=pit_normalized_dir,
-            qlib_dir=cn_data_dir,
-        ).dump(interval="quarterly")
+        DumpPitData(csv_path=pit_normalized_dir, qlib_dir=cn_data_dir, interval="q").dump()
 
     def setUp(self):
         # qlib.init(kernels=1)  # NOTE: set kernel to 1 to make it debug easier
         provider_uri = str(QLIB_DIR.joinpath("cn_data").resolve())
         qlib.init(provider_uri=provider_uri)
 
-    def test_query(self):
+    def to_str(self, obj):
+        return "".join(str(obj).split())
+
+    def check_same(self, a, b):
+        self.assertEqual(self.to_str(a), self.to_str(b))
+
+    def test_query_feature(self):
+        instruments = ["sh600519"]
+        fields = ["$$roewa_q", "$$yoyni_q"]
+        data = D.features(instruments, fields, start_time="2018-01-01", end_time="2019-07-19", freq="day")
+        res = """
+                                      $$roewa_q  $$yoyni_q
+        instrument period datetime
+        sh600519   201801 2018-04-28   0.088887   0.395075
+                   201802 2018-08-02   0.170563   0.404910
+                   201803 2018-10-29   0.255220   0.243892
+                   201804 2019-03-29   0.344644   0.304181
+                   201901 2019-04-25   0.094737   0.305041
+                   201902 2019-07-13   0.000000        NaN
+                          2019-07-18   0.175322   0.252650
+        """
+        self.check_same(data, res)
+
+    def test_query_p_ops(self):
         instruments = ["sh600519"]
         fields = ["P($$roewa_q)", "P($$yoyni_q)"]
         # Mao Tai published 2019Q2 report at 2019-07-13 & 2019-07-18
@@ -86,7 +103,7 @@ class TestPIT(unittest.TestCase):
         75%        0.255220      0.305041
         max        0.344644      0.305041
         """
-        self.assertEqual(split_df_to_str(data.describe()), split_df_to_str(res))
+        self.check_same(data.describe(), res)
 
         res = """
                                P($$roewa_q)  P($$yoyni_q)
@@ -97,7 +114,7 @@ class TestPIT(unittest.TestCase):
                    2019-07-18      0.175322      0.252650
                    2019-07-19      0.175322      0.252650
         """
-        self.assertEqual(split_df_to_str(data.tail()), split_df_to_str(res))
+        self.check_same(data.tail(), res)
 
     def test_no_exist_data(self):
         fields = ["P($$roewa_q)", "P($$yoyni_q)", "$close"]
@@ -120,7 +137,7 @@ class TestPIT(unittest.TestCase):
 
         [266 rows x 3 columns]
         """
-        self.assertEqual(split_df_to_str(data), split_df_to_str(expect))
+        self.check_same(data, expect)
 
     @pytest.mark.slow
     def test_expr(self):
@@ -149,10 +166,10 @@ class TestPIT(unittest.TestCase):
                    2019-07-15               0.000000      0.000000               0.047369              0.094737                               0.047369
                    2019-07-16               0.000000      0.000000               0.047369              0.094737                               0.047369
                    2019-07-17               0.000000      0.000000               0.047369              0.094737                               0.047369
-                   2019-07-18               0.175322      0.175322               0.135029              0.094737                               0.135029
-                   2019-07-19               0.175322      0.175322               0.135029              0.094737                               0.135029
+                   2019-07-18               0.175322      0.175322               0.087661              0.000000                               0.087661
+                   2019-07-19               0.175322      0.175322               0.087661              0.000000                               0.087661
         """
-        self.assertEqual(split_df_to_str(data.tail(15)), split_df_to_str(expect))
+        self.check_same(data.tail(15), expect)
 
     def test_unlimit(self):
         # fields = ["P(Mean($$roewa_q, 1))", "P($$roewa_q)", "P(Mean($$roewa_q, 2))", "P(Ref($$roewa_q, 1))", "P((Ref($$roewa_q, 1) +$$roewa_q) / 2)"]
@@ -220,7 +237,7 @@ class TestPIT(unittest.TestCase):
                     2019-10-16    0.255819
         Name: P($$roewa_q), dtype: float32
         """
-        self.assertEqual(split_df_to_str(s[~s.duplicated().values]), split_df_to_str(expect))
+        self.check_same(s[~s.duplicated().values], expect)
 
     def test_expr2(self):
         instruments = ["sh600519"]
@@ -246,7 +263,7 @@ class TestPIT(unittest.TestCase):
 
         [244 rows x 6 columns]
         """
-        self.assertEqual(split_df_to_str(data), split_df_to_str(except_data))
+        self.check_same(data, except_data)
 
     def test_pref_operator(self):
         instruments = ["sh600519"]
@@ -274,7 +291,7 @@ class TestPIT(unittest.TestCase):
 
         [299 rows x 4 columns]
         """
-        self.assertEqual(split_df_to_str(data), split_df_to_str(except_data))
+        self.check_same(data, except_data)
 
 
 if __name__ == "__main__":
