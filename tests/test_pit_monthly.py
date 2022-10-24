@@ -8,7 +8,7 @@ from pathlib import Path
 
 from qlib.tests import GetData
 
-sys.path.append(str(Path(__file__).resolve().parent.parent.joinpath("scripts")))
+sys.path.append(str(Path(__file__).resolve().parent.parent.joinpath("qlib_scripts")))
 from dump_pit import DumpPitData
 
 pd.set_option("display.width", 1000)
