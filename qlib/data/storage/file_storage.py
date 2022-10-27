@@ -521,6 +521,12 @@ class FileFinancialStorage(FinancialStorage, FileStorageMixin):
                 (exists_start_year,) = struct.unpack(self.PERIOD_DTYPE, fi.read(self.PERIOD_DTYPE_SIZE))
                 offset = self.interval.get_period_offset(exists_start_year, data_start_period)
                 exists_index_array = np.fromfile(fi, dtype=self.INDEX_DTYPE)
+                exists_end_year = exists_start_year + len(exists_index_array) // self.interval.value - 1
+
+                if offset > len(exists_index_array):
+                    offset = len(exists_index_array) - 1
+
+                # find last index
                 while exists_index_array[offset] == self.NA_INDEX:
                     offset -= 1
                 exists_index_array = exists_index_array[offset:]
@@ -532,7 +538,7 @@ class FileFinancialStorage(FinancialStorage, FileStorageMixin):
                 index_array = np.insert(
                     index_array,
                     -1,
-                    na_index_item * (exists_start_year - data_start_year),
+                    na_index_item * (data_end_year - exists_end_year),
                 )
                 rewrite_start_year = exists_start_year > data_start_year
 
