@@ -485,11 +485,11 @@ class FileFinancialStorage(FinancialStorage, FileStorageMixin):
 
     @property
     def index_uri(self) -> Path:
-        return self.base_uri / f"{self.field}.index"
+        return self.base_uri / f"{self.field.lower()}.index"
 
     @property
     def data_uri(self) -> Path:
-        return self.base_uri / f"{self.field}.data"
+        return self.base_uri / f"{self.field.lower()}.data"
 
     @property
     def data(self) -> pd.Series:
