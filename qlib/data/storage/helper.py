@@ -33,7 +33,7 @@ class FinancialInterval(Enum):
             return [
                 year * 100 + quarter
                 for year in range(start_period // 100, end_period // 100 + 1)
-                for quarter in range(1, 12)
+                for quarter in range(1, 13)
                 if start_period <= (year * 100 + quarter) <= end_period
             ]
         else:

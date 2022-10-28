@@ -564,7 +564,6 @@ class FileFinancialStorage(FinancialStorage, FileStorageMixin):
                 exists_data_array = np.fromfile(fd, dtype=self.DATA_DTYPE_TUPLE)
                 data_array = np.concatenate([data_array, exists_data_array])
         data_array.sort(order=[self.PERIOD_COLUMN_NAME, self.DATE_COLUMN_NAME])
-
         # remove duplicate rows of date and period
         _, mask = np.unique(data_array[[self.DATE_COLUMN_NAME, self.PERIOD_COLUMN_NAME]], return_index=True)
         data_array = data_array[mask]
@@ -574,6 +573,7 @@ class FileFinancialStorage(FinancialStorage, FileStorageMixin):
         end_period = data_array[self.PERIOD_COLUMN_NAME].max()
         data_idx = data_offset
         data_array_idx = 0
+
         for idx, period in enumerate(self.interval.get_period_list(start_period, end_period)):
             period_data_array_size = data_array[data_array[self.PERIOD_COLUMN_NAME] == period].size
             if period_data_array_size != 0:
