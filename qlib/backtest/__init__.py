@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Any, Generator, List, Optional, Tuple, Union
 import pandas as pd
 
 from .account import Account
-from .report import Indicator, PortfolioMetrics
 
 if TYPE_CHECKING:
     from ..strategy.base import BaseStrategy
@@ -20,7 +19,7 @@ if TYPE_CHECKING:
 from ..config import C
 from ..log import get_module_logger
 from ..utils import init_instance_by_config
-from .backtest import backtest_loop, collect_data_loop
+from .backtest import INDICATOR_METRIC, PORT_METRIC, backtest_loop, collect_data_loop
 from .decision import Order
 from .exchange import Exchange
 from .utils import CommonInfrastructure
@@ -41,8 +40,8 @@ def get_exchange(
     open_cost: float = 0.0015,
     close_cost: float = 0.0025,
     min_cost: float = 5.0,
-    limit_threshold: Union[Tuple[str, str], float, None] = None,
-    deal_price: Union[str, Tuple[str, str], List[str]] = None,
+    limit_threshold: Union[Tuple[str, str], float, None] | None = None,
+    deal_price: Union[str, Tuple[str, str], List[str]] | None = None,
     **kwargs: Any,
 ) -> Exchange:
     """get_exchange
@@ -223,7 +222,7 @@ def backtest(
     account: Union[float, int, dict] = 1e9,
     exchange_kwargs: dict = {},
     pos_type: str = "Position",
-) -> Tuple[PortfolioMetrics, Indicator]:
+) -> Tuple[PORT_METRIC, INDICATOR_METRIC]:
     """initialize the strategy and executor, then backtest function for the interaction of the outermost strategy and
     executor in the nested decision execution
 
@@ -244,7 +243,7 @@ def backtest(
     benchmark: str
         the benchmark for reporting.
     account : Union[float, int, Position]
-        information for describing how to creating the account
+        information for describing how to create the account
         For `float` or `int`:
             Using Account with only initial cash
         For `Position`:
@@ -256,9 +255,9 @@ def backtest(
 
     Returns
     -------
-    portfolio_metrics_dict: Dict[PortfolioMetrics]
+    portfolio_dict: PORT_METRIC
         it records the trading portfolio_metrics information
-    indicator_dict: Dict[Indicator]
+    indicator_dict: INDICATOR_METRIC
         it computes the trading indicator
         It is organized in a dict format
 
@@ -273,8 +272,7 @@ def backtest(
         exchange_kwargs,
         pos_type=pos_type,
     )
-    portfolio_metrics, indicator = backtest_loop(start_time, end_time, trade_strategy, trade_executor)
-    return portfolio_metrics, indicator
+    return backtest_loop(start_time, end_time, trade_strategy, trade_executor)
 
 
 def collect_data(
@@ -286,7 +284,7 @@ def collect_data(
     account: Union[float, int, dict] = 1e9,
     exchange_kwargs: dict = {},
     pos_type: str = "Position",
-    return_value: dict = None,
+    return_value: dict | None = None,
 ) -> Generator[object, None, None]:
     """initialize the strategy and executor, then collect the trade decision data for rl training
 
