@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 """
 Motivation of index_data
-- Pandas has a lot of user-friendly interfaces. However, integrating too much features in a single tool bring to much overhead and makes it much slower than numpy.
+- Pandas has a lot of user-friendly interfaces. However, integrating too much features in a single tool bring too much overhead and makes it much slower than numpy.
     Some users just want a simple numpy dataframe with indices and don't want such a complicated tools.
     Such users are the target of `index_data`
 
@@ -271,7 +271,7 @@ class LocIndexer:
                         if isinstance(_indexing, IndexData):
                             _indexing = _indexing.data
                         assert _indexing.ndim == 1
-                        if _indexing.dtype != np.bool:
+                        if _indexing.dtype != bool:
                             _indexing = np.array(list(index.index(i) for i in _indexing))
                     else:
                         _indexing = index.index(_indexing)
@@ -431,7 +431,7 @@ class IndexData(metaclass=index_data_ops_creator):
 
     # The code below could be simpler like methods in __getattribute__
     def __invert__(self):
-        return self.__class__(~self.data.astype(np.bool), *self.indices)
+        return self.__class__(~self.data.astype(bool), *self.indices)
 
     def abs(self):
         """get the abs of data except np.NaN."""

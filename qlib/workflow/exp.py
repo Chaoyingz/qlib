@@ -2,14 +2,14 @@
 # Licensed under the MIT License.
 
 from typing import Dict, List, Union
+from qlib.typehint import Literal
 import mlflow
-import logging
 from mlflow.entities import ViewType
 from mlflow.exceptions import MlflowException
 from .recorder import Recorder, MLflowRecorder
 from ..log import get_module_logger
 
-logger = get_module_logger("workflow", logging.INFO)
+logger = get_module_logger("workflow")
 
 
 class Experiment:
@@ -21,7 +21,7 @@ class Experiment:
     def __init__(self, id, name):
         self.id = id
         self.name = name
-        self.active_recorder = None  # only one recorder can running each time
+        self.active_recorder = None  # only one recorder can run each time
         self._default_rec_name = "abstract_recorder"
 
     def __repr__(self):
@@ -111,7 +111,7 @@ class Experiment:
         """
         raise NotImplementedError(f"Please implement the `delete_recorder` method.")
 
-    def get_recorder(self, recorder_id=None, recorder_name=None, create: bool = True, start: bool = False):
+    def get_recorder(self, recorder_id=None, recorder_name=None, create: bool = True, start: bool = False) -> Recorder:
         """
         Retrieve a Recorder for user. When user specify recorder id and name, the method will try to return the
         specific recorder. When user does not provide recorder id or name, the method will try to return the current
@@ -218,7 +218,9 @@ class Experiment:
     RT_D = "dict"  # return type dict
     RT_L = "list"  # return type list
 
-    def list_recorders(self, rtype: str = RT_D, **flt_kwargs) -> Union[List[Recorder], Dict[str, Recorder]]:
+    def list_recorders(
+        self, rtype: Literal["dict", "list"] = RT_D, **flt_kwargs
+    ) -> Union[List[Recorder], Dict[str, Recorder]]:
         """
         List all the existing recorders of this experiment. Please first get the experiment instance before calling this method.
         If user want to use the method `R.list_recorders()`, please refer to the related API document in `QlibRecorder`.
@@ -229,7 +231,7 @@ class Experiment:
 
         Returns
         -------
-        The return type depent on `rtype`
+        The return type depends on `rtype`
             if `rtype` == "dict":
                 A dictionary (id -> recorder) of recorder information that being stored.
             elif `rtype` == "list":
@@ -246,7 +248,6 @@ class MLflowExperiment(Experiment):
     def __init__(self, id, name, uri):
         super(MLflowExperiment, self).__init__(id, name)
         self._uri = uri
-        self._default_name = None
         self._default_rec_name = "mlflow_recorder"
         self._client = mlflow.tracking.MlflowClient(tracking_uri=self._uri)
 
@@ -340,7 +341,7 @@ class MLflowExperiment(Experiment):
 
     def list_recorders(
         self,
-        rtype=Experiment.RT_D,
+        rtype: Literal["dict", "list"] = Experiment.RT_D,
         max_results: int = UNLIMITED,
         status: Union[str, None] = None,
         filter_string: str = "",
@@ -352,7 +353,7 @@ class MLflowExperiment(Experiment):
         Parameters
         ----------
         max_results : int
-            the number limitation of the results
+            the number limitation of the results'
         status : str
             the criteria based on status to filter results.
             `None` indicates no filtering.

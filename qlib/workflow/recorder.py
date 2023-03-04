@@ -3,8 +3,8 @@
 
 import os
 import sys
+from typing import Optional
 import mlflow
-import logging
 import shutil
 import pickle
 import tempfile
@@ -19,7 +19,9 @@ from qlib.utils.paral import AsyncCaller
 from ..log import TimeInspector, get_module_logger
 from mlflow.store.artifact.azure_blob_artifact_repo import AzureBlobArtifactRepository
 
-logger = get_module_logger("workflow", logging.INFO)
+logger = get_module_logger("workflow")
+# mlflow limits the length of log_param to 500, but this caused errors when using qrun, so we extended the mlflow limit.
+mlflow.utils.validation.MAX_PARAM_VAL_LENGTH = 1000
 
 
 class Recorder:
@@ -138,6 +140,19 @@ class Recorder:
         """
         raise NotImplementedError(f"Please implement the `log_metrics` method.")
 
+    def log_artifact(self, local_path: str, artifact_path: Optional[str] = None):
+        """
+        Log a local file or directory as an artifact of the currently active run.
+
+        Parameters
+        ----------
+        local_path : str
+            Path to the file to write.
+        artifact_path : Optional[str]
+            If provided, the directory in ``artifact_uri`` to write to.
+        """
+        raise NotImplementedError(f"Please implement the `log_metrics` method.")
+
     def set_tags(self, **kwargs):
         """
         Log a batch of tags for the current run.
@@ -172,6 +187,28 @@ class Recorder:
         Returns
         -------
         A list of artifacts information (name, path, etc.) that being stored.
+        """
+        raise NotImplementedError(f"Please implement the `list_artifacts` method.")
+
+    def download_artifact(self, path: str, dst_path: Optional[str] = None) -> str:
+        """
+        Download an artifact file or directory from a run to a local directory if applicable,
+        and return a local path for it.
+
+        Parameters
+        ----------
+        path : str
+            Relative source path to the desired artifact.
+        dst_path : Optional[str]
+            Absolute path of the local filesystem destination directory to which to
+            download the specified artifacts. This directory must already exist.
+            If unspecified, the artifacts will either be downloaded to a new
+            uniquely-named directory on the local filesystem.
+
+        Returns
+        -------
+        str
+            Local path of desired artifact.
         """
         raise NotImplementedError(f"Please implement the `list_artifacts` method.")
 
@@ -212,6 +249,14 @@ class MLflowRecorder(Recorder):
 
     Due to the fact that mlflow will only log artifact from a file or directory, we decide to
     use file manager to help maintain the objects in the project.
+
+    Instead of using mlflow directly, we use another interface wrapping mlflow to log experiments.
+    Though it takes extra efforts, but it brings users benefits due to following reasons.
+    - It will be more convenient to change the experiment logging backend without changing any code in upper level
+    - We can provide more convenience to automatically do some extra things and make interface easier. For examples:
+        - Automatically logging the uncommitted code
+        - Automatically logging part of environment variables
+        - User can control several different runs by just creating different Recorder (in mlflow, you always have to switch artifact_uri and pass in run ids frequently)
     """
 
     def __init__(self, experiment_id, uri, name=None, mlflow_run=None):
@@ -235,6 +280,7 @@ class MLflowRecorder(Recorder):
                 if mlflow_run.info.end_time is not None
                 else None
             )
+            self._artifact_uri = mlflow_run.info.artifact_uri
         self.async_log = None
 
     def __repr__(self):
@@ -304,6 +350,9 @@ class MLflowRecorder(Recorder):
         self._log_uncommitted_code()
 
         self.log_params(**{"cmd-sys.argv": " ".join(sys.argv)})  # log the command to produce current experiment
+        self.log_params(
+            **{k: v for k, v in os.environ.items() if k.startswith("_QLIB_")}
+        )  # Log necessary environment variables
         return run
 
     def _log_uncommitted_code(self):
@@ -322,7 +371,7 @@ class MLflowRecorder(Recorder):
                 out = subprocess.check_output(cmd, shell=True)
                 self.client.log_text(self.id, out.decode(), fname)  # this behaves same as above
             except subprocess.CalledProcessError:
-                logger.info(f"Fail to log the uncommitted code of $CWD when run `{cmd}`")
+                logger.info(f"Fail to log the uncommitted code of $CWD({os.getcwd()}) when run {cmd}.")
 
     def end_run(self, status: str = Recorder.STATUS_S):
         assert status in [
@@ -331,14 +380,15 @@ class MLflowRecorder(Recorder):
             Recorder.STATUS_FI,
             Recorder.STATUS_FA,
         ], f"The status type {status} is not supported."
-        mlflow.end_run(status)
         self.end_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         if self.status != Recorder.STATUS_S:
             self.status = status
         if self.async_log is not None:
+            # Waiting Queue should go before mlflow.end_run. Otherwise mlflow will raise error
             with TimeInspector.logt("waiting `async_log`"):
                 self.async_log.wait()
         self.async_log = None
+        mlflow.end_run(status)
 
     def save_objects(self, local_path=None, artifact_path=None, **kwargs):
         assert self.uri is not None, "Please start the experiment and recorder first before using recorder directly."
@@ -398,6 +448,9 @@ class MLflowRecorder(Recorder):
         for name, data in kwargs.items():
             self.client.log_metric(self.id, name, data, step=step)
 
+    def log_artifact(self, local_path, artifact_path: Optional[str] = None):
+        self.client.log_artifact(self.id, local_path=local_path, artifact_path=artifact_path)
+
     @AsyncCaller.async_dec(ac_attr="async_log")
     def set_tags(self, **kwargs):
         for name, data in kwargs.items():
@@ -419,6 +472,9 @@ class MLflowRecorder(Recorder):
         assert self.uri is not None, "Please start the experiment and recorder first before using recorder directly."
         artifacts = self.client.list_artifacts(self.id, artifact_path)
         return [art.path for art in artifacts]
+
+    def download_artifact(self, path: str, dst_path: Optional[str] = None) -> str:
+        return self.client.download_artifacts(self.id, path, dst_path)
 
     def list_metrics(self):
         run = self.client.get_run(self.id)

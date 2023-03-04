@@ -4,10 +4,11 @@
 from __future__ import annotations
 
 from abc import abstractmethod
+from datetime import time
 from enum import IntEnum
 
 # try to fix circular imports when enabling type hints
-from typing import Generic, List, TYPE_CHECKING, Any, ClassVar, Optional, Tuple, TypeVar, Union, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, List, Optional, Tuple, TypeVar, Union, cast
 
 from qlib.backtest.utils import TradeCalendarManager
 from qlib.data.data import Cal
@@ -22,7 +23,6 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
-
 
 DecisionType = TypeVar("DecisionType")
 
@@ -135,6 +135,21 @@ class Order:
         else:
             raise NotImplementedError(f"This type of input is not supported")
 
+    @property
+    def key_by_day(self) -> tuple:
+        """A hashable & unique key to identify this order, under the granularity in day."""
+        return self.stock_id, self.date, self.direction
+
+    @property
+    def key(self) -> tuple:
+        """A hashable & unique key to identify this order."""
+        return self.stock_id, self.start_time, self.end_time, self.direction
+
+    @property
+    def date(self) -> pd.Timestamp:
+        """Date of the order."""
+        return pd.Timestamp(self.start_time.replace(hour=0, minute=0, second=0))
+
 
 class OrderHelper:
     """
@@ -182,8 +197,8 @@ class OrderHelper:
         return Order(
             stock_id=code,
             amount=amount,
-            start_time=start_time if start_time is not None else pd.Timestamp(start_time),
-            end_time=end_time if end_time is not None else pd.Timestamp(end_time),
+            start_time=None if start_time is None else pd.Timestamp(start_time),
+            end_time=None if end_time is None else pd.Timestamp(end_time),
             direction=direction,
         )
 
@@ -239,7 +254,7 @@ class IdxTradeRange(TradeRange):
         self._start_idx = start_idx
         self._end_idx = end_idx
 
-    def __call__(self, trade_calendar: TradeCalendarManager = None) -> Tuple[int, int]:
+    def __call__(self, trade_calendar: TradeCalendarManager | None = None) -> Tuple[int, int]:
         return self._start_idx, self._end_idx
 
     def clip_time_range(self, start_time: pd.Timestamp, end_time: pd.Timestamp) -> Tuple[pd.Timestamp, pd.Timestamp]:
@@ -249,7 +264,7 @@ class IdxTradeRange(TradeRange):
 class TradeRangeByTime(TradeRange):
     """This is a helper function for make decisions"""
 
-    def __init__(self, start_time: str, end_time: str) -> None:
+    def __init__(self, start_time: str | time, end_time: str | time) -> None:
         """
         This is a callable class.
 
@@ -259,13 +274,13 @@ class TradeRangeByTime(TradeRange):
 
         Parameters
         ----------
-        start_time : str
+        start_time : str | time
             e.g. "9:30"
-        end_time : str
+        end_time : str | time
             e.g. "14:30"
         """
-        self.start_time = pd.Timestamp(start_time).time()
-        self.end_time = pd.Timestamp(end_time).time()
+        self.start_time = pd.Timestamp(start_time).time() if isinstance(start_time, str) else start_time
+        self.end_time = pd.Timestamp(end_time).time() if isinstance(end_time, str) else end_time
         assert self.start_time < self.end_time
 
     def __call__(self, trade_calendar: TradeCalendarManager) -> Tuple[int, int]:
@@ -286,7 +301,7 @@ class TradeRangeByTime(TradeRange):
 
 class BaseTradeDecision(Generic[DecisionType]):
     """
-    Trade decisions ara made by strategy and executed by executor
+    Trade decisions are made by strategy and executed by executor
 
     Motivation:
         Here are several typical scenarios for `BaseTradeDecision`
@@ -300,7 +315,7 @@ class BaseTradeDecision(Generic[DecisionType]):
         2. Same as `case 1.3`
     """
 
-    def __init__(self, strategy: BaseStrategy, trade_range: Union[Tuple[int, int], TradeRange] = None) -> None:
+    def __init__(self, strategy: BaseStrategy, trade_range: Union[Tuple[int, int], TradeRange, None] = None) -> None:
         """
         Parameters
         ----------
@@ -535,7 +550,12 @@ class TradeDecisionWO(BaseTradeDecision[Order]):
     Besides, the time_range is also included.
     """
 
-    def __init__(self, order_list: List[object], strategy: BaseStrategy, trade_range: Tuple[int, int] = None) -> None:
+    def __init__(
+        self,
+        order_list: List[Order],
+        strategy: BaseStrategy,
+        trade_range: Union[Tuple[int, int], TradeRange, None] = None,
+    ) -> None:
         super().__init__(strategy, trade_range=trade_range)
         self.order_list = cast(List[Order], order_list)
         start, end = strategy.trade_calendar.get_step_time()
@@ -556,3 +576,21 @@ class TradeDecisionWO(BaseTradeDecision[Order]):
             f"trade_range: {self.trade_range}; "
             f"order_list[{len(self.order_list)}]"
         )
+
+
+class TradeDecisionWithDetails(TradeDecisionWO):
+    """
+    Decision with detail information.
+    Detail information is used to generate execution reports.
+    """
+
+    def __init__(
+        self,
+        order_list: List[Order],
+        strategy: BaseStrategy,
+        trade_range: Optional[Tuple[int, int]] = None,
+        details: Optional[Any] = None,
+    ) -> None:
+        super().__init__(order_list, strategy, trade_range)
+
+        self.details = details

@@ -30,6 +30,7 @@ class DEnsembleModel(Model, FeatureInt):
         sample_ratios=None,
         sub_weights=None,
         epochs=100,
+        early_stopping_rounds=None,
         **kwargs
     ):
         self.base_model = base_model  # "gbm" or "mlp", specifically, we use lgbm for "gbm"
@@ -44,7 +45,7 @@ class DEnsembleModel(Model, FeatureInt):
         if sample_ratios is None:  # the default values for sample_ratios
             sample_ratios = [0.8, 0.7, 0.6, 0.5, 0.4]
         if sub_weights is None:  # the default values for sub_weights
-            sub_weights = [1.0, 0.2, 0.2, 0.2, 0.2, 0.2]
+            sub_weights = [1] * self.num_models
         if not len(sample_ratios) == bins_fs:
             raise ValueError("The length of sample_ratios should be equal to bins_fs.")
         self.sample_ratios = sample_ratios
@@ -59,6 +60,7 @@ class DEnsembleModel(Model, FeatureInt):
         self.params = {"objective": loss}
         self.params.update(kwargs)
         self.loss = loss
+        self.early_stopping_rounds = early_stopping_rounds
 
     def fit(self, dataset: DatasetH):
         df_train, df_valid = dataset.prepare(
@@ -87,7 +89,9 @@ class DEnsembleModel(Model, FeatureInt):
             loss_curve = self.retrieve_loss_curve(model_k, df_train, features)
             pred_k = self.predict_sub(model_k, df_train, features)
             pred_sub.iloc[:, k] = pred_k
-            pred_ensemble = pred_sub.iloc[:, : k + 1].mean(axis=1)
+            pred_ensemble = (pred_sub.iloc[:, : k + 1] * self.sub_weights[0 : k + 1]).sum(axis=1) / np.sum(
+                self.sub_weights[0 : k + 1]
+            )
             loss_values = pd.Series(self.get_loss(y_train.values.squeeze(), pred_ensemble.values))
 
             if self.enable_sr:
@@ -101,14 +105,19 @@ class DEnsembleModel(Model, FeatureInt):
     def train_submodel(self, df_train, df_valid, weights, features):
         dtrain, dvalid = self._prepare_data_gbm(df_train, df_valid, weights, features)
         evals_result = dict()
+
+        callbacks = [lgb.log_evaluation(20), lgb.record_evaluation(evals_result)]
+        if self.early_stopping_rounds:
+            callbacks.append(lgb.early_stopping(self.early_stopping_rounds))
+            self.logger.info("Training with early_stopping...")
+
         model = lgb.train(
             self.params,
             dtrain,
             num_boost_round=self.epochs,
             valid_sets=[dtrain, dvalid],
             valid_names=["train", "valid"],
-            verbose_eval=20,
-            evals_result=evals_result,
+            callbacks=callbacks,
         )
         evals_result["train"] = list(evals_result["train"].values())[0]
         evals_result["valid"] = list(evals_result["valid"].values())[0]
@@ -159,8 +168,8 @@ class DEnsembleModel(Model, FeatureInt):
         h["bins"] = pd.cut(h["h_value"], self.bins_sr)
         h_avg = h.groupby("bins")["h_value"].mean()
         weights = pd.Series(np.zeros(N, dtype=float))
-        for i_b, b in enumerate(h_avg.index):
-            weights[h["bins"] == b] = 1.0 / (self.decay**k_th * h_avg[i_b] + 0.1)
+        for b in h_avg.index:
+            weights[h["bins"] == b] = 1.0 / (self.decay**k_th * h_avg[b] + 0.1)
         return weights
 
     def feature_selection(self, df_train, loss_values):
@@ -246,6 +255,7 @@ class DEnsembleModel(Model, FeatureInt):
                 pd.Series(submodel.predict(x_test.loc[:, feat_sub].values), index=x_test.index)
                 * self.sub_weights[i_sub]
             )
+        pred = pred / np.sum(self.sub_weights)
         return pred
 
     def predict_sub(self, submodel, df_data, features):

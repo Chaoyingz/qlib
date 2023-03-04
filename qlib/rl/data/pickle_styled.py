@@ -20,17 +20,17 @@ This file shows resemblence to qlib.backtest.high_performance_ds. We might merge
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import List, Sequence, cast
 from pathlib import Path
+from typing import List, Sequence, cast
 
 import cachetools
 import numpy as np
 import pandas as pd
 from cachetools.keys import hashkey
 
-from qlib.backtest.decision import OrderDir, Order
+from qlib.backtest.decision import Order, OrderDir
+from qlib.rl.data.base import BaseIntradayBacktestData, BaseIntradayProcessedData, ProcessedDataProvider
 from qlib.typehint import Literal
-
 
 DealPriceType = Literal["bid_or_ask", "bid_or_ask_fill", "close"]
 """Several ad-hoc deal price.
@@ -40,7 +40,7 @@ DealPriceType = Literal["bid_or_ask", "bid_or_ask_fill", "close"]
 """
 
 
-def _infer_processed_data_column_names(shape: int) -> list[str]:
+def _infer_processed_data_column_names(shape: int) -> List[str]:
     if shape == 16:
         return [
             "$open",
@@ -83,21 +83,32 @@ def _find_pickle(filename_without_suffix: Path) -> Path:
 
 @lru_cache(maxsize=10)  # 10 * 40M = 400MB
 def _read_pickle(filename_without_suffix: Path) -> pd.DataFrame:
-    return pd.read_pickle(_find_pickle(filename_without_suffix))
+    df = pd.read_pickle(_find_pickle(filename_without_suffix))
+    index_cols = df.index.names
+
+    df = df.reset_index()
+    for date_col_name in ["date", "datetime"]:
+        if date_col_name in df:
+            df[date_col_name] = pd.to_datetime(df[date_col_name])
+    df = df.set_index(index_cols)
+
+    return df
 
 
-class IntradayBacktestData:
-    """Raw market data that is often used in backtesting (thus called BacktestData)."""
+class SimpleIntradayBacktestData(BaseIntradayBacktestData):
+    """Backtest data for simple simulator"""
 
     def __init__(
         self,
-        data_dir: Path,
+        data_dir: Path | str,
         stock_id: str,
         date: pd.Timestamp,
         deal_price: DealPriceType = "close",
         order_dir: int | None = None,
-    ):
-        backtest = _read_pickle(data_dir / stock_id)
+    ) -> None:
+        super(SimpleIntradayBacktestData, self).__init__()
+
+        backtest = _read_pickle((data_dir if isinstance(data_dir, Path) else Path(data_dir)) / stock_id)
         backtest = backtest.loc[pd.IndexSlice[stock_id, :, date]]
 
         # No longer need for pandas >= 1.4
@@ -105,13 +116,13 @@ class IntradayBacktestData:
 
         self.data: pd.DataFrame = backtest
         self.deal_price_type: DealPriceType = deal_price
-        self.order_dir: int | None = order_dir
+        self.order_dir = order_dir
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         with pd.option_context("memory_usage", False, "display.max_info_columns", 1, "display.large_repr", "info"):
             return f"{self.__class__.__name__}({self.data})"
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.data)
 
     def get_deal_price(self) -> pd.Series:
@@ -147,23 +158,19 @@ class IntradayBacktestData:
         return cast(pd.DatetimeIndex, self.data.index)
 
 
-class IntradayProcessedData:
-    """Processed market data after data cleanup and feature engineering.
+class IntradayProcessedData(BaseIntradayProcessedData):
+    """Subclass of IntradayProcessedData. Used to handle Dataset Handler style data."""
 
-    It contains both processed data for "today" and "yesterday", as some algorithms
-    might use the market information of the previous day to assist decision making.
-    """
+    def __init__(
+        self,
+        data_dir: Path | str,
+        stock_id: str,
+        date: pd.Timestamp,
+        feature_dim: int,
+        time_index: pd.Index,
+    ) -> None:
+        proc = _read_pickle((data_dir if isinstance(data_dir, Path) else Path(data_dir)) / stock_id)
 
-    today: pd.DataFrame
-    """Processed data for "today".
-    Number of records must be ``time_length``, and columns must be ``feature_dim``."""
-
-    yesterday: pd.DataFrame
-    """Processed data for "yesterday".
-    Number of records must be ``time_length``, and columns must be ``feature_dim``."""
-
-    def __init__(self, data_dir: Path, stock_id: str, date: pd.Timestamp, feature_dim: int, time_index: pd.Index):
-        proc = _read_pickle(data_dir / stock_id)
         # We have to infer the names here because,
         # unfortunately they are not included in the original data.
         cnames = _infer_processed_data_column_names(feature_dim)
@@ -190,30 +197,62 @@ class IntradayProcessedData:
         assert len(self.today.columns) == len(self.yesterday.columns) == feature_dim
         assert len(self.today) == len(self.yesterday) == time_length
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         with pd.option_context("memory_usage", False, "display.max_info_columns", 1, "display.large_repr", "info"):
             return f"{self.__class__.__name__}({self.today}, {self.yesterday})"
 
 
 @lru_cache(maxsize=100)  # 100 * 50K = 5MB
-def load_intraday_backtest_data(
-    data_dir: Path, stock_id: str, date: pd.Timestamp, deal_price: DealPriceType = "close", order_dir: int | None = None
-) -> IntradayBacktestData:
-    return IntradayBacktestData(data_dir, stock_id, date, deal_price, order_dir)
+def load_simple_intraday_backtest_data(
+    data_dir: Path,
+    stock_id: str,
+    date: pd.Timestamp,
+    deal_price: DealPriceType = "close",
+    order_dir: int | None = None,
+) -> SimpleIntradayBacktestData:
+    return SimpleIntradayBacktestData(data_dir, stock_id, date, deal_price, order_dir)
 
 
 @cachetools.cached(  # type: ignore
     cache=cachetools.LRUCache(100),  # 100 * 50K = 5MB
-    key=lambda data_dir, stock_id, date, _, __: hashkey(data_dir, stock_id, date),
+    key=lambda data_dir, stock_id, date, feature_dim, time_index: hashkey(data_dir, stock_id, date),
 )
-def load_intraday_processed_data(
-    data_dir: Path, stock_id: str, date: pd.Timestamp, feature_dim: int, time_index: pd.Index
-) -> IntradayProcessedData:
+def load_pickled_intraday_processed_data(
+    data_dir: Path,
+    stock_id: str,
+    date: pd.Timestamp,
+    feature_dim: int,
+    time_index: pd.Index,
+) -> BaseIntradayProcessedData:
     return IntradayProcessedData(data_dir, stock_id, date, feature_dim, time_index)
 
 
+class PickleProcessedDataProvider(ProcessedDataProvider):
+    def __init__(self, data_dir: Path) -> None:
+        super().__init__()
+
+        self._data_dir = data_dir
+
+    def get_data(
+        self,
+        stock_id: str,
+        date: pd.Timestamp,
+        feature_dim: int,
+        time_index: pd.Index,
+    ) -> BaseIntradayProcessedData:
+        return load_pickled_intraday_processed_data(
+            data_dir=self._data_dir,
+            stock_id=stock_id,
+            date=date,
+            feature_dim=feature_dim,
+            time_index=time_index,
+        )
+
+
 def load_orders(
-    order_path: Path, start_time: pd.Timestamp | None = None, end_time: pd.Timestamp | None = None
+    order_path: Path,
+    start_time: pd.Timestamp = None,
+    end_time: pd.Timestamp = None,
 ) -> Sequence[Order]:
     """Load orders, and set start time and end time for the orders."""
 
@@ -251,7 +290,7 @@ def load_orders(
                 OrderDir(int(row["order_type"])),
                 row["datetime"].replace(hour=start_time.hour, minute=start_time.minute, second=start_time.second),
                 row["datetime"].replace(hour=end_time.hour, minute=end_time.minute, second=end_time.second),
-            )
+            ),
         )
 
     return orders
