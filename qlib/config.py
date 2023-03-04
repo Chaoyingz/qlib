@@ -410,7 +410,7 @@ class QlibConfig(Config):
 
         # FIXME: this logger ignored the level in config
         logger = get_module_logger("Initialization", level=logging.INFO)
-        logger.info(f"default_conf: {default_conf}.")
+        logger.debug(f"default_conf: {default_conf}.")
 
         self.set_mode(default_conf)
         self.set_region(kwargs.get("region", self["region"] if "region" in self else REG_CN))

@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 from pathlib import Path
 
-__version__ = "0.8.10"
+__version__ = "0.8.13"
 __version__bak = __version__  # This version is backup for QlibConfig.reset_qlib_version
 import os
 from typing import Union
@@ -71,9 +71,9 @@ def init(default_conf="client", **kwargs):
 
     if "flask_server" in C:
         logger.info(f"flask_server={C['flask_server']}, flask_port={C['flask_port']}")
-    logger.info("qlib successfully initialized based on %s settings." % default_conf)
+    logger.debug("qlib successfully initialized based on %s settings." % default_conf)
     data_path = {_freq: C.dpm.get_data_uri(_freq) for _freq in C.dpm.provider_uri.keys()}
-    logger.info(f"data_path={data_path}")
+    logger.debug(f"data_path={data_path}")
 
 
 def _mount_nfs_uri(provider_uri, mount_path, auto_mount: bool = False):
