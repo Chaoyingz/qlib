@@ -17,7 +17,6 @@ from typing import List, Union
 # For supporting multiprocessing in outer code, joblib is used
 from joblib import delayed
 
-from .base import PFeature
 from .cache import H
 from .storage.file_storage import FileFinancialStorage
 from ..config import C
@@ -576,7 +575,7 @@ class DatasetProvider(abc.ABC):
         for field in column_names:
             #  The client does not have expression provider, the data will be loaded from cache using static method.
             field_value = ExpressionD.expression(inst, field, start_time, end_time, freq)
-            if field.startswith("$$"):
+            if "$$" in field:
                 financial_obj[field] = field_value
             else:
                 feature_obj[field] = field_value
@@ -765,7 +764,8 @@ class LocalExpressionProvider(ExpressionProvider):
             pass
         except TypeError:
             pass
-        if not series.empty and not isinstance(expression, PFeature):
+        # Filter out pit data
+        if not series.empty and not isinstance(series.index, pd.MultiIndex):
             series = series.loc[start_index:end_index]
         return series
 

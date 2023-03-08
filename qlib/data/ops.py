@@ -753,8 +753,6 @@ class Rolling(ExpressionOps):
 
     def _load_internal(self, instrument, start_index, end_index, *args):
         series = self.feature.load(instrument, start_index, end_index, *args)
-        if series.dtype in CATEGORY_DTYPES:
-            raise ValueError("Rolling operator not support category dtype.")
         # NOTE: remove all null check,
         # now it's user's responsibility to decide whether use features in null days
         # isnull = series.isnull() # NOTE: isnull = NaN, inf is not null
