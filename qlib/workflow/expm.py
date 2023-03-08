@@ -38,7 +38,6 @@ class ExpManager:
         self._active_exp_uri = None  # No active experiments. So it is set to None
         self._default_exp_name = default_exp_name
         self.active_experiment = None  # only one experiment can be active each time
-        logger.debug(f"experiment manager uri is at {self._current_uri}")
         logger.debug(f"experiment manager uri is at {self.uri}")
 
     def __repr__(self):
