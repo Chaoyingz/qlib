@@ -658,7 +658,6 @@ class FileFinancialStorage(FinancialStorage, FileStorageMixin):
 
         # get period from calendar index
         start_period, end_period = self.interval.get_period_slice(s)
-
         # read all periods
         with open(self.index_uri, "rb") as fi:
             (first_year,) = struct.unpack(self.PERIOD_DTYPE, fi.read(self.PERIOD_DTYPE_SIZE))
@@ -668,14 +667,13 @@ class FileFinancialStorage(FinancialStorage, FileStorageMixin):
         start_offset = self.interval.get_period_offset(first_year, start_period)
         end_offset = self.interval.get_period_offset(first_year, end_period) + 1
         if end_offset > len(exists_periods):
-            end_offset = -1
-
+            end_offset = None
         # get data file index
         exists_periods = exists_periods[start_offset:end_offset]
         start_index, end_index = exists_periods.min(), exists_periods.max()
         with open(self.data_uri, "rb") as fd:
             fd.seek(start_index)
-            f = fd.read(end_index - start_index)
+            f = fd.read(end_index - start_index + self.DATA_DTYPE_SIZE)
             data = np.frombuffer(f, self.DATA_DTYPE_TUPLE)
         vfunc = np.vectorize(lambda x: pd.to_datetime(str(x)))
         if data.size == 0:
