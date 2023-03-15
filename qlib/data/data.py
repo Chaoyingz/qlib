@@ -569,6 +569,7 @@ class DatasetProvider(abc.ABC):
         # FIXME: Windows OS or MacOS using spawn: https://docs.python.org/3.8/library/multiprocessing.html?highlight=spawn#contexts-and-start-methods
         # NOTE: This place is compatible with windows, windows multi-process is spawn
         C.register_from_C(g_config)
+        _calendar = Cal.calendar(freq=freq)
 
         feature_obj = dict()
         financial_obj = dict()
@@ -576,16 +577,16 @@ class DatasetProvider(abc.ABC):
             #  The client does not have expression provider, the data will be loaded from cache using static method.
             field_value = ExpressionD.expression(inst, field, start_time, end_time, freq)
             if "$$" in field:
+                if "P(" in field:
+                    field_value = pd.Series(field_value.values, index=_calendar[field_value.index.values.astype(int)])
                 financial_obj[field] = field_value
             else:
                 feature_obj[field] = field_value
 
         data = pd.DataFrame(feature_obj)
         financial_data = pd.DataFrame(financial_obj)
-
         if not data.empty and not np.issubdtype(data.index.dtype, np.dtype("M")):
             # If the underlaying provides the data not in datatime formmat, we'll convert it into datetime format
-            _calendar = Cal.calendar(freq=freq)
             data.index = _calendar[data.index.values.astype(int)]
         data.index.names = ["datetime"]
 
