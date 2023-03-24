@@ -579,6 +579,7 @@ class DatasetProvider(abc.ABC):
             if "$$" in field:
                 if "P(" in field:
                     field_value = pd.Series(field_value.values, index=_calendar[field_value.index.values.astype(int)])
+                    field_value.index.names = ["datetime"]
                 financial_obj[field] = field_value
             else:
                 feature_obj[field] = field_value
