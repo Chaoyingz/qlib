@@ -589,6 +589,13 @@ class DatasetProvider(abc.ABC):
         if not data.empty and not np.issubdtype(data.index.dtype, np.dtype("M")):
             # If the underlaying provides the data not in datatime formmat, we'll convert it into datetime format
             data.index = _calendar[data.index.values.astype(int)]
+
+        if not financial_data.empty and not np.issubdtype(financial_data.index.dtype, np.dtype("M")):
+            financial_data.index = financial_data.index.set_levels(
+                _calendar[financial_data.index.levels[1].values.astype(int)],
+                level=1,
+            )
+
         data.index.names = ["datetime"]
 
         if not data.empty and spans is not None:

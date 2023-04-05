@@ -3,8 +3,7 @@
 import pathlib
 import shutil
 from pathlib import Path
-from typing import Iterable, Union, Any
-from functools import partial
+from typing import Iterable, Any
 from concurrent.futures import ProcessPoolExecutor
 
 import fire
@@ -13,7 +12,6 @@ from tqdm import tqdm
 from loguru import logger
 
 from qlib.data.storage.file_storage import FileFinancialStorage
-from qlib.data.storage.helper import FinancialInterval
 from qlib.utils import fname_to_code
 
 
@@ -31,7 +29,7 @@ class DumpPitData:
         exclude_fields: str = "",
         include_fields: str = "",
         limit_nums: int = None,
-        interval: Union[FinancialInterval, str] = FinancialInterval.QUARTERLY,
+        interval: str = "q",
     ) -> None:
         """
 
@@ -69,12 +67,19 @@ class DumpPitData:
         self.backup_dir = backup_dir if backup_dir is None else Path(backup_dir).expanduser()
         if backup_dir is not None:
             self._backup_qlib_dir(Path(backup_dir).expanduser())
-
-        if isinstance(interval, str):
-            self.interval = FinancialInterval.from_alias(interval)
-        else:
-            self.interval = interval
         self.works = max_workers
+        self.interval = interval
+        self.calendar = self.get_calendar_df()
+
+    def get_calendar_df(self) -> pd.DataFrame:
+        cal_uri = self.qlib_dir / "calendars" / "day.txt"
+        if not cal_uri.exists():
+            raise ValueError(f"Calendar file not found: {cal_uri}")
+        df = pd.read_csv(cal_uri, header=None)
+        df.rename(columns={0: "date"}, inplace=True)
+        df.index.name = "cal_index"
+        df.reset_index(inplace=True)
+        return df
 
     def _backup_qlib_dir(self, target_dir: Path) -> None:
         shutil.copytree(str(self.qlib_dir.resolve()), str(target_dir.resolve()))
@@ -95,14 +100,9 @@ class DumpPitData:
             else set(df[FileFinancialStorage.FIELD_COLUMN_NAME])
         )
 
-    @staticmethod
-    def get_field_name(field: str, interval: FinancialInterval) -> str:
-        return f"{field.lower()}_{interval.to_alias()}"
-
     def _dump_pit(
         self,
         file_path: pathlib.Path,
-        interval: FinancialInterval,
     ) -> None:
         """
         dump data as the following format:
@@ -118,17 +118,14 @@ class DumpPitData:
 
         `<field>.index` contains the index of value for each period (quarter or year). To save
         disk space, we only store the `first_year` as its followings periods can be easily infered.
-
-        Parameters
-        ----------
-        interval: str
-            data interval
         """
         symbol = self.get_symbol_from_file(file_path)
         df = self.get_source_data(file_path)
         if df.empty:
             logger.warning(f"{symbol} file is empty")
             return
+        df = df.merge(self.calendar, on="date", how="left")
+        df[FileFinancialStorage.DATE_COLUMN_NAME] = df["cal_index"]
         for field in self.get_dump_fields(df):
             field_df = df.query(f"{FileFinancialStorage.FIELD_COLUMN_NAME}=='{field}'").sort_values(
                 FileFinancialStorage.DATE_COLUMN_NAME
@@ -136,16 +133,14 @@ class DumpPitData:
             if field_df.empty:
                 logger.warning(f"Field {field} of {symbol} is empty.")
                 continue
-            FileFinancialStorage(symbol, self.get_field_name(field, interval), "day", provider_uri=self.qlib_dir).write(
-                field_df
-            )
+            field = f"{field}_{self.interval}"
+            FileFinancialStorage(symbol, field, "day").write(field_df)
 
     def dump(self) -> None:
         logger.info("start dump pit data......")
-        _dump_func = partial(self._dump_pit, interval=self.interval)
         with tqdm(total=len(self.csv_files)) as p_bar:
             with ProcessPoolExecutor(max_workers=self.works) as executor:
-                for _ in executor.map(_dump_func, self.csv_files):
+                for _ in executor.map(self._dump_pit, self.csv_files):
                     p_bar.update()
 
     def __call__(self, *args: Any, **kwargs: Any) -> None:

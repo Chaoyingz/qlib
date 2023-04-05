@@ -8,7 +8,6 @@ import numpy as np
 import pandas as pd
 
 from qlib.data.storage.storage import FinancialStorage
-from qlib.data.storage.helper import FinancialInterval
 from qlib.utils.time import Freq
 from qlib.utils.resam import resam_calendar
 from qlib.config import C
@@ -479,208 +478,35 @@ class FileFinancialStorage(FinancialStorage, FileStorageMixin):
     DATE_COLUMN_NAME = "date"
     VALUE_COLUMN_NAME = "value"
     FIELD_COLUMN_NAME = "field"
-    NEXT_COLUMN_NAME = "_next"
-
-    PERIOD_DTYPE = C.pit_record_type["period"]
-    INDEX_DTYPE = C.pit_record_type["index"]
-    DATA_DTYPE_DICT = {
-        DATE_COLUMN_NAME: C.pit_record_type["date"],
-        PERIOD_COLUMN_NAME: C.pit_record_type["period"],
-        VALUE_COLUMN_NAME: C.pit_record_type["value"],
-        NEXT_COLUMN_NAME: C.pit_record_type["index"],
-    }
-    DATA_DTYPE_STR = "".join(
-        [
-            C.pit_record_type["date"],
-            C.pit_record_type["period"],
-            C.pit_record_type["value"],
-            C.pit_record_type["index"],
-        ]
-    )
-    DATA_DTYPE_TUPLE = [
-        (DATE_COLUMN_NAME, C.pit_record_type["date"]),
-        (PERIOD_COLUMN_NAME, C.pit_record_type["period"]),
-        (VALUE_COLUMN_NAME, C.pit_record_type["value"]),
-        (NEXT_COLUMN_NAME, C.pit_record_type["index"]),
-    ]
-    NA_INDEX = C.pit_record_nan["index"]
-
-    PERIOD_DTYPE_SIZE = struct.calcsize(PERIOD_DTYPE)
-    INDEX_DTYPE_SIZE = struct.calcsize(INDEX_DTYPE)
-    DATA_DTYPE_SIZE = struct.calcsize(DATA_DTYPE_STR)
-
-    EMPTY_SERIES = pd.Series(
-        dtype=np.float32, index=pd.MultiIndex(levels=[[], []], codes=[[], []], names=["period", "datetime"])
-    )
-
-    def __init__(
-        self,
-        instrument: str,
-        field: str,
-        freq: str,
-        provider_uri: Optional[Union[str, Path]] = None,
-        **kwargs,
-    ):
-        super().__init__(instrument, field, freq, **kwargs)
-        self._provider_uri = None if provider_uri is None else C.DataPathManager.format_provider_uri(provider_uri)
-        self.interval = FinancialInterval.from_alias(field[-1])
-
-    @property
-    def dpm(self):
-        return (
-            C.dpm
-            if getattr(self, "_provider_uri", None) is None
-            else C.DataPathManager(self._provider_uri, getattr(C, "mount_path", None))
-        )
-
-    @property
-    def base_uri(self) -> Path:
-        uri = self.dpm.get_data_uri() / self.storage_name / self.instrument.lower()
-        uri.mkdir(parents=True, exist_ok=True)
-        return uri
-
-    @property
-    def index_uri(self) -> Path:
-        return self.base_uri / f"{self.field.lower()}.index"
-
-    @property
-    def data_uri(self) -> Path:
-        return self.base_uri / f"{self.field.lower()}.data"
 
     @property
     def data(self) -> pd.Series:
         return self[:]
 
+    @property
+    def uri(self) -> Path:
+        return self.dpm.get_data_uri() / self.storage_name / self.instrument.lower() / f"{self.field.lower()}.feather"
+
     def write(self, df: pd.DataFrame) -> None:
-        # format data array
-        df[self.DATE_COLUMN_NAME] = pd.to_datetime(df[self.DATE_COLUMN_NAME])
-        df[self.DATE_COLUMN_NAME] = df[self.DATE_COLUMN_NAME].apply(lambda x: int(x.strftime("%Y%m%d")))
-        df[self.NEXT_COLUMN_NAME] = self.NA_INDEX
-        data_array = df[
-            [
-                self.DATE_COLUMN_NAME,
-                self.PERIOD_COLUMN_NAME,
-                self.VALUE_COLUMN_NAME,
-                self.NEXT_COLUMN_NAME,
-            ]
-        ].to_records(index=False, column_dtypes=self.DATA_DTYPE_DICT)
-
-        # get last period
-        data_start_period = data_array[self.PERIOD_COLUMN_NAME].min()
-
-        # merge index with existing index
-        na_index_item = [self.NA_INDEX] * self.interval.value
-        data_start_year = self.interval.get_year(df[self.PERIOD_COLUMN_NAME].min())
-        data_end_year = self.interval.get_year(df[self.PERIOD_COLUMN_NAME].max())
-        if self.index_uri.exists():
-            with open(self.index_uri, "rb") as fi:
-                (exists_start_year,) = struct.unpack(self.PERIOD_DTYPE, fi.read(self.PERIOD_DTYPE_SIZE))
-                offset = self.interval.get_period_offset(exists_start_year, data_start_period)
-                exists_index_array = np.fromfile(fi, dtype=self.INDEX_DTYPE)
-                exists_end_year = exists_start_year + len(exists_index_array) // self.interval.value - 1
-
-                if offset > len(exists_index_array):
-                    offset = len(exists_index_array) - 1
-
-                # find last index
-                while exists_index_array[offset] == self.NA_INDEX:
-                    offset -= 1
-                exists_index_array = exists_index_array[offset:]
-                index_array = np.insert(
-                    exists_index_array,
-                    0,
-                    na_index_item * (exists_start_year - data_start_year),
-                )
-                index_array = np.insert(
-                    index_array,
-                    -1,
-                    na_index_item * (data_end_year - exists_end_year),
-                )
-                rewrite_start_year = exists_start_year > data_start_year
-
-                index_offset = self.PERIOD_DTYPE_SIZE + offset * self.INDEX_DTYPE_SIZE
-                data_offset = exists_index_array[0]
-                idx_offset = 0
+        df = df[[self.PERIOD_COLUMN_NAME, self.DATE_COLUMN_NAME, self.VALUE_COLUMN_NAME]].copy()
+        if self.uri.exists():
+            with open(self.uri, "rb") as f:
+                exists_df = pd.read_feather(f)
+            df = pd.concat([exists_df, df])
+            df.drop_duplicates(subset=[self.PERIOD_COLUMN_NAME, self.DATE_COLUMN_NAME], inplace=True)
         else:
-            index_array = np.array(
-                na_index_item * (data_end_year - data_start_year + 1),
-                dtype=self.INDEX_DTYPE,
-            )
-            rewrite_start_year = True
-
-            offset = self.interval.get_period_offset(self.interval.get_year(data_start_period), data_start_period)
-            index_offset = self.PERIOD_DTYPE_SIZE
-            data_offset = 0
-            idx_offset = offset
-
-        # merge data with existing data
-        if self.data_uri.exists():
-            with open(self.data_uri, "rb") as fd:
-                fd.seek(data_offset)
-                exists_data_array = np.fromfile(fd, dtype=self.DATA_DTYPE_TUPLE)
-                data_array = np.concatenate([data_array, exists_data_array])
-        data_array.sort(order=[self.PERIOD_COLUMN_NAME, self.DATE_COLUMN_NAME])
-        # remove duplicate rows of date and period
-        _, mask = np.unique(data_array[[self.DATE_COLUMN_NAME, self.PERIOD_COLUMN_NAME]], return_index=True)
-        data_array = data_array[mask]
-
-        # rewrite index
-        start_period = data_array[self.PERIOD_COLUMN_NAME].min()
-        end_period = data_array[self.PERIOD_COLUMN_NAME].max()
-        data_idx = data_offset
-        data_array_idx = 0
-
-        for idx, period in enumerate(self.interval.get_period_list(start_period, end_period)):
-            period_data_array_size = data_array[data_array[self.PERIOD_COLUMN_NAME] == period].size
-            if period_data_array_size != 0:
-                index_array[idx + idx_offset] = data_idx
-            for i in range(period_data_array_size):
-                data_idx += self.DATA_DTYPE_SIZE
-                if i < period_data_array_size - 1:
-                    data_array[data_array_idx][self.NEXT_COLUMN_NAME] = data_idx
-                data_array_idx += 1
-
-        # write to file
-        mode = "r+b" if self.index_uri.exists() else "w+b"
-        with open(self.index_uri, mode) as fi, open(self.data_uri, mode) as fd:
-            if rewrite_start_year:
-                fi.write(struct.pack(self.PERIOD_DTYPE, data_start_year))
-
-            fi.seek(index_offset)
-            fi.write(index_array.tobytes())
-
-            fd.seek(data_offset)
-            fd.write(data_array.tobytes())
+            self.uri.parent.mkdir(parents=True, exist_ok=True)
+        df.sort_values(by=[self.PERIOD_COLUMN_NAME, self.DATE_COLUMN_NAME], inplace=True)
+        df.reset_index(drop=True).to_feather(self.uri)
 
     def __getitem__(self, s: slice) -> pd.Series:
-        if not self.data_uri.exists() or not self.index_uri.exists():
-            return self.EMPTY_SERIES
+        if not self.uri.exists():
+            return pd.Series(
+                dtype=np.float32, index=pd.MultiIndex(levels=[[], []], codes=[[], []], names=["period", "datetime"])
+            )
+        with open(self.uri, "rb") as f:
+            df = pd.read_feather(f)
 
-        # get period from calendar index
-        start_period, end_period = self.interval.get_period_slice(s)
-        # read all periods
-        with open(self.index_uri, "rb") as fi:
-            (first_year,) = struct.unpack(self.PERIOD_DTYPE, fi.read(self.PERIOD_DTYPE_SIZE))
-            exists_periods = np.fromfile(fi, dtype=self.INDEX_DTYPE)
-
-        # get period offset
-        start_offset = self.interval.get_period_offset(first_year, start_period)
-        end_offset = self.interval.get_period_offset(first_year, end_period) + 1
-        if end_offset > len(exists_periods):
-            end_offset = None
-        # get data file index
-        exists_periods = exists_periods[start_offset:end_offset]
-        start_index, end_index = exists_periods.min(), exists_periods.max()
-        with open(self.data_uri, "rb") as fd:
-            fd.seek(start_index)
-            f = fd.read(end_index - start_index + self.DATA_DTYPE_SIZE)
-            data = np.frombuffer(f, self.DATA_DTYPE_TUPLE)
-        vfunc = np.vectorize(lambda x: pd.to_datetime(str(x)))
-        if data.size == 0:
-            return self.EMPTY_SERIES
-        series = pd.Series(
-            data["value"],
-            index=pd.MultiIndex.from_arrays([data["period"], vfunc(data["date"])], names=["period", "datetime"]),
-        )
-        series.sort_index(inplace=True)
-        return series
+        df = df[(df[self.DATE_COLUMN_NAME] >= s.start) & (df[self.DATE_COLUMN_NAME] <= s.stop)]
+        df.set_index([self.PERIOD_COLUMN_NAME, self.DATE_COLUMN_NAME], inplace=True)
+        return df[self.VALUE_COLUMN_NAME]
