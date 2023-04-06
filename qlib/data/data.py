@@ -576,10 +576,7 @@ class DatasetProvider(abc.ABC):
         for field in column_names:
             #  The client does not have expression provider, the data will be loaded from cache using static method.
             field_value = ExpressionD.expression(inst, field, start_time, end_time, freq)
-            if "$$" in field:
-                if "P(" in field:
-                    field_value = pd.Series(field_value.values, index=_calendar[field_value.index.values.astype(int)])
-                    field_value.index.names = ["datetime"]
+            if field.startswith("$$"):
                 financial_obj[field] = field_value
             else:
                 feature_obj[field] = field_value

@@ -30,6 +30,7 @@ class DumpPitData:
         include_fields: str = "",
         limit_nums: int = None,
         interval: str = "q",
+        provider_uri: str = None,
     ) -> None:
         """
 
@@ -134,7 +135,7 @@ class DumpPitData:
                 logger.warning(f"Field {field} of {symbol} is empty.")
                 continue
             field = f"{field}_{self.interval}"
-            FileFinancialStorage(symbol, field, "day").write(field_df)
+            FileFinancialStorage(symbol, field, "day", provider_uri=self.qlib_dir).write(field_df)
 
     def dump(self) -> None:
         logger.info("start dump pit data......")

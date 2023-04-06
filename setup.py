@@ -44,13 +44,13 @@ if not _CYTHON_INSTALLED:
 # What packages are required for this module to be executed?
 # `estimator` may depend on other packages. In order to reduce dependencies, it is not written here.
 REQUIRED = [
-    "numpy>=1.12.0, <1.24",
+    "numpy>=1.12.0",
     "pandas>=0.25.1",
-    "scipy>=1.0.0",
+    # "scipy>=1.0.0",
     "requests>=2.18.0",
     "sacred>=0.7.4",
     "python-socketio",
-    "redis>=3.0.1",
+    # "redis>=3.0.1",
     "python-redis-lock>=3.3.1",
     "schedule>=0.6.0",
     "cvxpy>=1.0.21",
@@ -61,17 +61,15 @@ REQUIRED = [
     "matplotlib>=3.3",
     "tables>=3.6.1",
     "pyyaml>=5.3.1",
-    # To ensure stable operation of the experiment manager, we have limited the version of mlflow,
-    # and we need to verify whether version 2.0 of mlflow can serve qlib properly.
-    "mlflow>=1.12.1, <=1.30.0",
+    "mlflow>=1.12.1",
     "tqdm",
     "loguru",
-    "lightgbm>=3.3.0",
+    # "lightgbm>=3.3.0",
     "tornado",
     "joblib>=0.17.0",
     "ruamel.yaml>=0.16.12",
-    "pymongo<=4",  # For task management
-    "scikit-learn>=0.22",
+    # "pymongo<=4",  # For task management
+    # "scikit-learn>=0.22",
     "dill",
     "dataclasses;python_version<'3.7'",
     "filelock",
@@ -79,6 +77,7 @@ REQUIRED = [
     "gym",
     # Installing the latest version of protobuf for python versions below 3.8 will cause unit tests to fail.
     "protobuf<=3.20.1;python_version<='3.8'",
+    "pyarrow",
 ]
 
 # Numpy include
@@ -145,27 +144,13 @@ setup(
             # References: https://github.com/python/typeshed/issues/8799
             "mypy<0.981",
             "flake8",
-            "nbqa",
-            "jupyter",
-            "nbconvert",
-            # The 5.0.0 version of importlib-metadata removed the deprecated endpoint,
-            # which prevented flake8 from working properly, so we restricted the version of importlib-metadata.
-            # To help ensure the dependencies of flake8 https://github.com/python/importlib_metadata/issues/406
-            "importlib-metadata<5.0.0",
             "readthedocs_sphinx_ext",
             "cmake",
             "lxml",
             "baostock",
             "yahooquery",
             "beautifulsoup4",
-            # In version 0.4.11 of tianshou, the code:
-            # logits, hidden = self.actor(batch.obs, state=state, info=batch.info)
-            # was changed in PR787,
-            # which causes pytest errors(AttributeError: 'dict' object has no attribute 'info') in CI,
-            # so we restricted the version of tianshou.
-            # References:
-            # https://github.com/thu-ml/tianshou/releases
-            "tianshou<=0.4.10",
+            "tianshou",
             "gym>=0.24",  # If you do not put gym at the end, gym will degrade causing pytest results to fail.
         ],
         "rl": [

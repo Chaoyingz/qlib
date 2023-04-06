@@ -475,13 +475,32 @@ class FileFeatureStorage(FileStorageMixin, FeatureStorage):
 
 class FileFinancialStorage(FinancialStorage, FileStorageMixin):
     PERIOD_COLUMN_NAME = "period"
-    DATE_COLUMN_NAME = "date"
+    DATE_COLUMN_NAME = "datetime"
     VALUE_COLUMN_NAME = "value"
     FIELD_COLUMN_NAME = "field"
+
+    def __init__(
+        self,
+        instrument: str,
+        field: str,
+        freq: str,
+        provider_uri: Optional[Union[str, Path]] = None,
+        **kwargs,
+    ):
+        super().__init__(instrument, field, freq, **kwargs)
+        self._provider_uri = None if provider_uri is None else C.DataPathManager.format_provider_uri(provider_uri)
 
     @property
     def data(self) -> pd.Series:
         return self[:]
+
+    @property
+    def dpm(self):
+        return (
+            C.dpm
+            if getattr(self, "_provider_uri", None) is None
+            else C.DataPathManager(self._provider_uri, getattr(C, "mount_path", None))
+        )
 
     @property
     def uri(self) -> Path:
