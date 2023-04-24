@@ -526,6 +526,7 @@ class FileFinancialStorage(FinancialStorage, FileStorageMixin):
         with open(self.uri, "rb") as f:
             df = pd.read_feather(f)
 
-        df = df[(df[self.DATE_COLUMN_NAME] >= s.start) & (df[self.DATE_COLUMN_NAME] <= s.stop)]
+        # df = df[(df[self.DATE_COLUMN_NAME] >= s.start) & (df[self.DATE_COLUMN_NAME] <= s.stop)]
+        df[self.DATE_COLUMN_NAME] = pd.to_datetime(df[self.DATE_COLUMN_NAME])
         df.set_index([self.PERIOD_COLUMN_NAME, self.DATE_COLUMN_NAME], inplace=True)
         return df[self.VALUE_COLUMN_NAME]

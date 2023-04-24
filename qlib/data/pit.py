@@ -19,6 +19,7 @@ import numpy as np
 import pandas as pd
 from qlib.data.ops import ElemOperator
 from qlib.log import get_module_logger
+from .data import Cal
 
 
 class P(ElemOperator):
@@ -27,10 +28,12 @@ class P(ElemOperator):
     ) -> pd.Series:
         # Observe time may populate values with data from the reporting period prior to the end date
         series = self.feature.load(instrument, 0, end_index, freq)
+        _calendar = Cal.calendar(freq=freq)
         resample_data = np.empty(end_index - start_index + 1, dtype="float32")
         for time_idx in range(start_index, end_index + 1):
+            current_time = _calendar[time_idx]
             try:
-                s = series[series.index.get_level_values("datetime") <= time_idx]
+                s = series[series.index.get_level_values("datetime") <= current_time]
                 if period is not None:
                     s = s[s.index.get_level_values("period") == period]
                 resample_data[time_idx - start_index] = s.iloc[-1] if len(s) > 0 else np.nan

@@ -588,10 +588,10 @@ class DatasetProvider(abc.ABC):
             data.index = _calendar[data.index.values.astype(int)]
 
         if not financial_data.empty and not np.issubdtype(financial_data.index.dtype, np.dtype("M")):
-            financial_data.index = financial_data.index.set_levels(
-                _calendar[financial_data.index.levels[1].values.astype(int)],
-                level=1,
-            )
+            financial_data = financial_data.loc[
+                (financial_data.index.get_level_values(1) >= start_time)
+                & (financial_data.index.get_level_values(1) <= end_time)
+            ]
 
         data.index.names = ["datetime"]
 

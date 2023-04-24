@@ -30,7 +30,6 @@ class DumpPitData:
         include_fields: str = "",
         limit_nums: int = None,
         interval: str = "q",
-        provider_uri: str = None,
     ) -> None:
         """
 
@@ -70,17 +69,6 @@ class DumpPitData:
             self._backup_qlib_dir(Path(backup_dir).expanduser())
         self.works = max_workers
         self.interval = interval
-        self.calendar = self.get_calendar_df()
-
-    def get_calendar_df(self) -> pd.DataFrame:
-        cal_uri = self.qlib_dir / "calendars" / "day.txt"
-        if not cal_uri.exists():
-            raise ValueError(f"Calendar file not found: {cal_uri}")
-        df = pd.read_csv(cal_uri, header=None)
-        df.rename(columns={0: "date"}, inplace=True)
-        df.index.name = "cal_index"
-        df.reset_index(inplace=True)
-        return df
 
     def _backup_qlib_dir(self, target_dir: Path) -> None:
         shutil.copytree(str(self.qlib_dir.resolve()), str(target_dir.resolve()))
@@ -122,11 +110,10 @@ class DumpPitData:
         """
         symbol = self.get_symbol_from_file(file_path)
         df = self.get_source_data(file_path)
+        df = df.rename(columns={"date": FileFinancialStorage.DATE_COLUMN_NAME})
         if df.empty:
             logger.warning(f"{symbol} file is empty")
             return
-        df = df.merge(self.calendar, on="date", how="left")
-        df[FileFinancialStorage.DATE_COLUMN_NAME] = df["cal_index"]
         for field in self.get_dump_fields(df):
             field_df = df.query(f"{FileFinancialStorage.FIELD_COLUMN_NAME}=='{field}'").sort_values(
                 FileFinancialStorage.DATE_COLUMN_NAME
