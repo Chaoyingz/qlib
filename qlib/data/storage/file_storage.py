@@ -512,9 +512,9 @@ class FileFinancialStorage(FinancialStorage, FileStorageMixin):
             with open(self.uri, "rb") as f:
                 exists_df = pd.read_feather(f)
             df = pd.concat([exists_df, df])
-            df.drop_duplicates(subset=[self.PERIOD_COLUMN_NAME, self.DATE_COLUMN_NAME], inplace=True)
         else:
             self.uri.parent.mkdir(parents=True, exist_ok=True)
+        df.drop_duplicates(subset=[self.PERIOD_COLUMN_NAME, self.DATE_COLUMN_NAME], inplace=True)
         df.sort_values(by=[self.PERIOD_COLUMN_NAME, self.DATE_COLUMN_NAME], inplace=True)
         df.reset_index(drop=True).to_feather(self.uri)
 
@@ -526,7 +526,7 @@ class FileFinancialStorage(FinancialStorage, FileStorageMixin):
         with open(self.uri, "rb") as f:
             df = pd.read_feather(f)
 
-        # df = df[(df[self.DATE_COLUMN_NAME] >= s.start) & (df[self.DATE_COLUMN_NAME] <= s.stop)]
         df[self.DATE_COLUMN_NAME] = pd.to_datetime(df[self.DATE_COLUMN_NAME])
+        df.drop_duplicates(subset=[self.PERIOD_COLUMN_NAME, self.DATE_COLUMN_NAME], inplace=True)
         df.set_index([self.PERIOD_COLUMN_NAME, self.DATE_COLUMN_NAME], inplace=True)
         return df[self.VALUE_COLUMN_NAME]

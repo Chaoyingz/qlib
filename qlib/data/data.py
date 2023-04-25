@@ -582,7 +582,11 @@ class DatasetProvider(abc.ABC):
                 feature_obj[field] = field_value
 
         data = pd.DataFrame(feature_obj)
-        financial_data = pd.DataFrame(financial_obj)
+        try:
+            financial_data = pd.DataFrame(financial_obj)
+        except ValueError:
+            print(financial_obj)
+        # financial_data = pd.DataFrame(financial_obj)
         if not data.empty and not np.issubdtype(data.index.dtype, np.dtype("M")):
             # If the underlaying provides the data not in datatime formmat, we'll convert it into datetime format
             data.index = _calendar[data.index.values.astype(int)]
