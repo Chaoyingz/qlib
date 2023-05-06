@@ -4,7 +4,7 @@ import pathlib
 import shutil
 from pathlib import Path
 from typing import Iterable, Any
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 
 import fire
 import pandas as pd
@@ -127,7 +127,7 @@ class DumpPitData:
     def dump(self) -> None:
         logger.info("start dump pit data......")
         with tqdm(total=len(self.csv_files)) as p_bar:
-            with ProcessPoolExecutor(max_workers=self.works) as executor:
+            with ThreadPoolExecutor(max_workers=self.works) as executor:
                 for _ in executor.map(self._dump_pit, self.csv_files):
                     p_bar.update()
 

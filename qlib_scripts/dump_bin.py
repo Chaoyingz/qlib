@@ -7,7 +7,7 @@ import traceback
 from pathlib import Path
 from typing import Iterable, List, Union
 from functools import partial
-from concurrent.futures import ThreadPoolExecutor, as_completed, ProcessPoolExecutor
+from concurrent.futures import as_completed, ThreadPoolExecutor
 
 import fire
 import numpy as np
@@ -368,7 +368,7 @@ class DumpDataAll(DumpDataBase):
         date_range_list = []
         _fun = partial(self._get_date, as_set=True, is_begin_end=True)
         with tqdm(total=len(self.csv_files)) as p_bar:
-            with ProcessPoolExecutor(max_workers=self.works) as executor:
+            with ThreadPoolExecutor(max_workers=self.works) as executor:
                 for file_path, ((_begin_time, _end_time), _set_calendars) in zip(
                     self.csv_files, executor.map(_fun, self.csv_files)
                 ):
@@ -399,7 +399,7 @@ class DumpDataAll(DumpDataBase):
         logger.info("start dump features......")
         _dump_func = partial(self._dump_bin, calendar_list=self._calendars_list)
         with tqdm(total=len(self.csv_files)) as p_bar:
-            with ProcessPoolExecutor(max_workers=self.works) as executor:
+            with ThreadPoolExecutor(max_workers=self.works) as executor:
                 for _ in executor.map(_dump_func, self.csv_files):
                     p_bar.update()
 
@@ -424,7 +424,7 @@ class DumpDataFix(DumpDataAll):
             )
         )
         with tqdm(total=len(new_stock_files)) as p_bar:
-            with ProcessPoolExecutor(max_workers=self.works) as execute:
+            with ThreadPoolExecutor(max_workers=self.works) as execute:
                 for file_path, (_begin_time, _end_time) in zip(new_stock_files, execute.map(_fun, new_stock_files)):
                     if isinstance(_begin_time, pd.Timestamp) and isinstance(_end_time, pd.Timestamp):
                         symbol = fname_to_code(self.get_symbol_from_file(file_path).lower()).upper()
@@ -533,7 +533,7 @@ class DumpDataUpdate(DumpDataBase):
     def _dump_features(self):
         logger.info("start dump features......")
         error_code = {}
-        with ProcessPoolExecutor(max_workers=self.works) as executor:
+        with ThreadPoolExecutor(max_workers=self.works) as executor:
             futures = {}
             for _code, _df in self._all_data.groupby(self.symbol_field_name):
                 _code = fname_to_code(str(_code).lower()).upper()
