@@ -336,7 +336,10 @@ class QlibConfig(Config):
                 freq = str(freq)  # converting Freq to string
             if freq is None or freq not in self.provider_uri:
                 freq = QlibConfig.DEFAULT_FREQ
-            _provider_uri = self.provider_uri[freq]
+            if isinstance(self.provider_uri, dict):
+                _provider_uri = self.provider_uri[freq]
+            else:
+                _provider_uri = self.provider_uri
             if self.get_uri_type(_provider_uri) == QlibConfig.LOCAL_URI:
                 return Path(_provider_uri)
             elif self.get_uri_type(_provider_uri) == QlibConfig.NFS_URI:
